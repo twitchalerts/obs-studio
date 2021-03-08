@@ -1181,8 +1181,8 @@ static bool obs_init(const char *locale, const char *module_config_path, profile
 		return false;
 	if (!obs_init_handlers())
 		return false;
-	if (!obs_init_hotkeys())
-		return false;
+	// if (!obs_init_hotkeys())
+	// 	return false;
 
 	obs->destruction_task_thread = os_task_queue_create();
 	if (!obs->destruction_task_thread)
@@ -1360,7 +1360,7 @@ void obs_shutdown(void)
 	obs_free_audio();
 	obs_free_video();
 	os_task_queue_destroy(obs->destruction_task_thread);
-	obs_free_hotkeys();
+	// obs_free_hotkeys();
 	obs_free_graphics();
 	proc_handler_destroy(obs->procs);
 	signal_handler_destroy(obs->signals);
