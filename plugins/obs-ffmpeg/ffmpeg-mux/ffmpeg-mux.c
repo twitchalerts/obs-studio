@@ -673,8 +673,8 @@ static int ffmpeg_mux_init_context(struct ffmpeg_mux *ffm)
 		return FFM_ERROR;
 	}
 
-	ffm->output->oformat->video_codec = AV_CODEC_ID_NONE;
-	ffm->output->oformat->audio_codec = AV_CODEC_ID_NONE;
+	// ffm->output->oformat->video_codec = AV_CODEC_ID_NONE;
+	// ffm->output->oformat->audio_codec = AV_CODEC_ID_NONE;
 
 	if (!init_streams(ffm)) {
 		free_avformat(ffm);

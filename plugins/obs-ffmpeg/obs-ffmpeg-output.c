@@ -545,11 +545,11 @@ static enum AVCodecID get_codec_id(const char *name, int id)
 
 static void set_encoder_ids(struct ffmpeg_data *data)
 {
-	data->output->oformat->video_codec = get_codec_id(
-		data->config.video_encoder, data->config.video_encoder_id);
+	// data->output->oformat->video_codec = get_codec_id(
+	// 	data->config.video_encoder, data->config.video_encoder_id);
 
-	data->output->oformat->audio_codec = get_codec_id(
-		data->config.audio_encoder, data->config.audio_encoder_id);
+	// data->output->oformat->audio_codec = get_codec_id(
+	// 	data->config.audio_encoder, data->config.audio_encoder_id);
 }
 
 bool ffmpeg_data_init(struct ffmpeg_data *data, struct ffmpeg_cfg *config)
@@ -597,8 +597,8 @@ bool ffmpeg_data_init(struct ffmpeg_data *data, struct ffmpeg_cfg *config)
 	}
 
 	if (is_rtmp) {
-		data->output->oformat->video_codec = AV_CODEC_ID_H264;
-		data->output->oformat->audio_codec = AV_CODEC_ID_AAC;
+		// data->output->oformat->video_codec = AV_CODEC_ID_H264;
+		// data->output->oformat->audio_codec = AV_CODEC_ID_AAC;
 	} else {
 		if (data->config.format_name)
 			set_encoder_ids(data);
