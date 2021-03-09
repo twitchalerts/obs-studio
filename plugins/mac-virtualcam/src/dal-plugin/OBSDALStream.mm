@@ -25,7 +25,7 @@
 
 #import "Logging.h"
 #import "CMSampleBufferUtils.h"
-#import "OBSDALPlugin.h"
+#import "OBSDALPlugIn.h"
 
 @interface OBSDALStream () {
 	CMSimpleQueueRef _queue;
@@ -170,6 +170,15 @@
 		NSString *placeHolderPath = [bundlePath
 			stringByAppendingString:
 				@"/Contents/Resources/placeholder.png"];
+		NSFileManager *fileManager = [NSFileManager defaultManager];
+		NSURL *homeUrl = [fileManager homeDirectoryForCurrentUser];
+		NSURL *customUrl = [homeUrl
+			URLByAppendingPathComponent:
+				@"Library/Application Support/obs-studio/plugin_config/mac-virtualcam/placeholder.png"];
+		NSString *customPlaceHolder = customUrl.path;
+		if ([fileManager isReadableFileAtPath:customPlaceHolder])
+			placeHolderPath = customPlaceHolder;
+		DLog(@"PlaceHolder:%@", placeHolderPath);
 		NSImage *placeholderImage = [[NSImage alloc]
 			initWithContentsOfFile:placeHolderPath];
 

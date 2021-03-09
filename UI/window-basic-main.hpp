@@ -31,6 +31,7 @@
 #include "window-basic-transform.hpp"
 #include "window-basic-adv-audio.hpp"
 #include "window-basic-filters.hpp"
+#include "window-missing-files.hpp"
 #include "window-projector.hpp"
 #include "window-basic-about.hpp"
 #include "auth-base.hpp"
@@ -234,8 +235,6 @@ private:
 	gs_vertbuffer_t *boxBottom = nullptr;
 	gs_vertbuffer_t *circle = nullptr;
 
-	bool sceneChanging = false;
-
 	int previewX = 0, previewY = 0;
 	int previewCX = 0, previewCY = 0;
 	float previewScale = 0.0f;
@@ -265,6 +264,7 @@ private:
 	QPointer<QAction> sysTrayStream;
 	QPointer<QAction> sysTrayRecord;
 	QPointer<QAction> sysTrayReplayBuffer;
+	QPointer<QAction> sysTrayVirtualCam;
 	QPointer<QAction> showHide;
 	QPointer<QAction> exit;
 	QPointer<QMenu> trayMenu;
@@ -477,6 +477,8 @@ private:
 	QList<QDialog *> visDialogs;
 	QList<QDialog *> modalDialogs;
 	QList<QMessageBox *> visMsgBoxes;
+
+	OBSMissingFiles *missDialog;
 
 	QList<QPoint> visDlgPositions;
 
@@ -960,6 +962,7 @@ private slots:
 	// Source Context Buttons
 	void on_sourcePropertiesButton_clicked();
 	void on_sourceFiltersButton_clicked();
+	void on_sourceInteractButton_clicked();
 
 	void on_autoConfigure_triggered();
 	void on_stats_triggered();

@@ -1563,7 +1563,15 @@ void OBSBasicSettings::LoadResolutionLists()
 
 	for (QScreen *screen : QGuiApplication::screens()) {
 		QSize as = screen->size();
-		addRes(as.width(), as.height());
+		uint32_t as_width = as.width();
+		uint32_t as_height = as.height();
+
+		// Calculate physical screen resolution based on the virtual screen resolution
+		// They might differ if scaling is enabled, e.g. for HiDPI screens
+		as_width = round(as_width * screen->devicePixelRatio());
+		as_height = round(as_height * screen->devicePixelRatio());
+
+		addRes(as_width, as_height);
 	}
 
 	addRes(1920, 1080);
@@ -2583,8 +2591,9 @@ LayoutHotkey(obs_hotkey_id id, obs_hotkey_t *key, Func &&fun,
 	auto *label = new OBSHotkeyLabel;
 	QString text = QT_UTF8(obs_hotkey_get_description(key));
 
+	label->setProperty("fullName", text);
+
 	if (text.length() > TRUNCATE_TEXT_LENGTH) {
-		label->setProperty("fullName", text);
 		text = text.left(TRUNCATE_TEXT_LENGTH);
 		text += "...'";
 	}
@@ -2722,7 +2731,10 @@ void OBSBasicSettings::LoadHotkeySettings(obs_hotkey_id ignoreKey)
 					qobject_cast<OBSHotkeyLabel *>(
 						label->widget());
 				if (item) {
-					if (item->text().toLower().contains(
+					QString fullname =
+						item->property("fullName")
+							.value<QString>();
+					if (fullname.toLower().contains(
 						    text.toLower()))
 						setRowVisible(i, true, label);
 					else

@@ -223,6 +223,7 @@ set(obs_SOURCES
 	window-log-reply.cpp
 	window-projector.cpp
 	window-remux.cpp
+	window-missing-files.cpp
 	auth-base.cpp
 	source-tree.cpp
 	scene-tree.cpp
@@ -285,6 +286,7 @@ set(obs_HEADERS
 	window-log-reply.hpp
 	window-projector.hpp
 	window-remux.hpp
+	window-missing-files.hpp
 	auth-base.hpp
 	source-tree.hpp
 	scene-tree.hpp
@@ -364,6 +366,7 @@ set(obs_UI
 	forms/OBSUpdate.ui
 	forms/OBSRemux.ui
 	forms/OBSImporter.ui
+	forms/OBSMissingFiles.ui
 	forms/OBSAbout.ui)
 
 set(obs_QRC
@@ -393,6 +396,16 @@ if(WIN32)
 			OUTPUT_NAME "obs${_output_suffix}")
 endif()
 
+if (ENABLE_WAYLAND)
+	find_package(Qt5Gui REQUIRED)
+	include_directories(${Qt5Gui_PRIVATE_INCLUDE_DIRS})
+
+	set(obs_PLATFORM_LIBRARIES
+		${obs_PLATFORM_LIBRARIES}
+		Qt5::Gui
+		Qt5::GuiPrivate)
+endif()
+
 target_link_libraries(obs
 	libobs
 	Qt5::Widgets
@@ -406,7 +419,6 @@ target_link_libraries(obs
 if (APPLE)
 	target_link_libraries(obs
 			Qt5::MacExtras)
-	set_target_properties(obs PROPERTIES LINK_FLAGS "-pagezero_size 10000 -image_base 100000000")
 endif()
 set_target_properties(obs PROPERTIES FOLDER "frontend")
 
