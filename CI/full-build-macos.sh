@@ -41,13 +41,14 @@ BUILD_DIR="${BUILD_DIR:-build}"
 BUILD_CONFIG=${BUILD_CONFIG:-RelWithDebInfo}
 CI_SCRIPTS="${CHECKOUT_DIR}/CI/scripts/macos"
 CI_WORKFLOW="${CHECKOUT_DIR}/.github/workflows/main.yml"
-CI_MACOS_CEF_VERSION=$(/bin/cat ${CI_WORKFLOW} | /usr/bin/sed -En "s/[ ]+MACOS_CEF_BUILD_VERSION: '([0-9]+)'/\1/p")
-CI_DEPS_VERSION=$(/bin/cat ${CI_WORKFLOW} | /usr/bin/sed -En "s/[ ]+MACOS_DEPS_VERSION: '([0-9\-]+)'/\1/p")
-CI_VLC_VERSION=$(/bin/cat ${CI_WORKFLOW} | /usr/bin/sed -En "s/[ ]+VLC_VERSION: '([0-9\.]+)'/\1/p")
-CI_SPARKLE_VERSION=$(/bin/cat ${CI_WORKFLOW} | /usr/bin/sed -En "s/[ ]+SPARKLE_VERSION: '([0-9\.]+)'/\1/p")
-CI_QT_VERSION=$(/bin/cat ${CI_WORKFLOW} | /usr/bin/sed -En "s/[ ]+QT_VERSION: '([0-9\.]+)'/\1/p" | /usr/bin/head -1)
-CI_MIN_MACOS_VERSION=$(/bin/cat ${CI_WORKFLOW} | /usr/bin/sed -En "s/[ ]+MIN_MACOS_VERSION: '([0-9\.]+)'/\1/p")
+CI_MACOS_CEF_VERSION=$(/bin/cat "${CI_WORKFLOW}" | /usr/bin/sed -En "s/[ ]+MACOS_CEF_BUILD_VERSION: '([0-9]+)'/\1/p")
+CI_DEPS_VERSION=$(/bin/cat "${CI_WORKFLOW}" | /usr/bin/sed -En "s/[ ]+MACOS_DEPS_VERSION: '([0-9\-]+)'/\1/p")
+CI_VLC_VERSION=$(/bin/cat "${CI_WORKFLOW}" | /usr/bin/sed -En "s/[ ]+VLC_VERSION: '([0-9\.]+)'/\1/p")
+CI_SPARKLE_VERSION=$(/bin/cat "${CI_WORKFLOW}" | /usr/bin/sed -En "s/[ ]+SPARKLE_VERSION: '([0-9\.]+)'/\1/p")
+CI_QT_VERSION=$(/bin/cat "${CI_WORKFLOW}" | /usr/bin/sed -En "s/[ ]+QT_VERSION: '([0-9\.]+)'/\1/p" | /usr/bin/head -1)
+CI_MIN_MACOS_VERSION=$(/bin/cat "${CI_WORKFLOW}" | /usr/bin/sed -En "s/[ ]+MIN_MACOS_VERSION: '([0-9\.]+)'/\1/p")
 NPROC="${NPROC:-$(sysctl -n hw.ncpu)}"
+CURRENT_ARCH=$(uname -m)
 
 BUILD_DEPS=(
     "obs-deps ${MACOS_DEPS_VERSION:-${CI_DEPS_VERSION}}"
@@ -99,7 +100,7 @@ exists() {
 }
 
 ensure_dir() {
-    [[ -n ${1} ]] && /bin/mkdir -p ${1} && builtin cd ${1}
+    [[ -n "${1}" ]] && /bin/mkdir -p "${1}" && builtin cd "${1}"
 }
 
 cleanup() {
@@ -142,7 +143,7 @@ install_homebrew_deps() {
         brew untap local/python2
     fi
 
-    brew bundle --file ${CI_SCRIPTS}/Brewfile
+    brew bundle --file "${CI_SCRIPTS}/Brewfile"
 
     check_curl
 }
@@ -160,33 +161,36 @@ check_curl() {
 }
 
 check_ccache() {
-    export PATH=/usr/local/opt/ccache/libexec:${PATH}
+    export PATH="/usr/local/opt/ccache/libexec:${PATH}"
     CCACHE_STATUS=$(ccache -s >/dev/null 2>&1 && /bin/echo "CCache available." || /bin/echo "CCache is not available.")
     info "${CCACHE_STATUS}"
 }
 
 install_obs-deps() {
     hr "Setting up pre-built macOS OBS dependencies v${1}"
-    ensure_dir ${DEPS_BUILD_DIR}
+    ensure_dir "${DEPS_BUILD_DIR}"
     step "Download..."
-    ${CURLCMD} --progress-bar -L -C - -O https://github.com/obsproject/obs-deps/releases/download/${1}/macos-deps-${1}.tar.gz
+    ${CURLCMD} --progress-bar -L -C - -O https://github.com/obsproject/obs-deps/releases/download/${1}/macos-deps-${1}-${CURRENT_ARCH}.tar.xz
     step "Unpack..."
-    /usr/bin/tar -xf ./macos-deps-${1}.tar.gz -C /tmp
+    mkdir -p /tmp/obsdeps
+    /usr/bin/tar -xf "./macos-deps-${1}-${CURRENT_ARCH}.tar.xz" -C /tmp/obsdeps
+    /usr/bin/xattr -r -d com.apple.quarantine /tmp/obsdeps
 }
 
 install_qt-deps() {
     hr "Setting up pre-built dependency QT v${1}"
-    ensure_dir ${DEPS_BUILD_DIR}
+    ensure_dir "${DEPS_BUILD_DIR}"
     step "Download..."
-    ${CURLCMD} --progress-bar -L -C - -O https://github.com/obsproject/obs-deps/releases/download/${2}/macos-qt-${1}-${2}.tar.gz
+    ${CURLCMD} --progress-bar -L -C - -O https://github.com/obsproject/obs-deps/releases/download/${2}/macos-deps-qt-${2}-${CURRENT_ARCH}.tar.xz
     step "Unpack..."
-    /usr/bin/tar -xf ./macos-qt-${1}-${2}.tar.gz -C /tmp
+    mkdir -p /tmp/obsdeps
+    /usr/bin/tar -xf ./macos-deps-qt-${2}-${CURRENT_ARCH}.tar.xz -C /tmp/obsdeps
     /usr/bin/xattr -r -d com.apple.quarantine /tmp/obsdeps
 }
 
 install_vlc() {
     hr "Setting up dependency VLC v${1}"
-    ensure_dir ${DEPS_BUILD_DIR}
+    ensure_dir "${DEPS_BUILD_DIR}"
     step "Download..."
     ${CURLCMD} --progress-bar -L -C - -O https://downloads.videolan.org/vlc/${1}/vlc-${1}.tar.xz
     step "Unpack ..."
@@ -195,7 +199,7 @@ install_vlc() {
 
 install_sparkle() {
     hr "Setting up dependency Sparkle v${1} (might prompt for password)"
-    ensure_dir ${DEPS_BUILD_DIR}/sparkle
+    ensure_dir "${DEPS_BUILD_DIR}/sparkle"
     step "Download..."
     ${CURLCMD} --progress-bar -L -C - -o sparkle.tar.bz2 https://github.com/sparkle-project/Sparkle/releases/download/${1}/Sparkle-${1}.tar.bz2
     step "Unpack..."
@@ -210,12 +214,12 @@ install_sparkle() {
 
 install_cef() {
     hr "Building dependency CEF v${1}"
-    ensure_dir ${DEPS_BUILD_DIR}
+    ensure_dir "${DEPS_BUILD_DIR}"
     step "Download..."
-    ${CURLCMD} --progress-bar -L -C - -O https://cdn-fastly.obsproject.com/downloads/cef_binary_${1}_macosx64.tar.bz2
+    ${CURLCMD} --progress-bar -L -C - -O https://cdn-fastly.obsproject.com/downloads/cef_binary_${1}_macos_x86_64.tar.xz
     step "Unpack..."
-    /usr/bin/tar -xf ./cef_binary_${1}_macosx64.tar.bz2
-    cd ./cef_binary_${1}_macosx64
+    /usr/bin/tar -xf ./cef_binary_${1}_macos_x86_64.tar.xz
+    cd ./cef_binary_${1}_macos_x86_64
     step "Fix tests..."
     /usr/bin/sed -i '.orig' '/add_subdirectory(tests\/ceftests)/d' ./CMakeLists.txt
     /usr/bin/sed -i '.orig' 's/"'$(test "${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}" -le 3770 && echo "10.9" || echo "10.10")'"/"'${MIN_MACOS_VERSION:-${CI_MIN_MACOS_VERSION}}'"/' ./cmake/cef_variables.cmake
@@ -257,13 +261,13 @@ configure_obs_build() {
 
     if [ -d ./OBS.app ]; then
         ensure_dir "${NIGHTLY_DIR}"
-        /bin/mv ../${BUILD_DIR}/OBS.app .
+        /bin/mv "../${BUILD_DIR}/OBS.app" .
         info "You can find OBS.app in ${NIGHTLY_DIR}"
     fi
     ensure_dir "${CHECKOUT_DIR}/${BUILD_DIR}"
     if ([ -n "${PACKAGE_NAME}" ] && [ -f ${PACKAGE_NAME} ]); then
         ensure_dir "${NIGHTLY_DIR}"
-        /bin/mv ../${BUILD_DIR}/$(basename "${PACKAGE_NAME}") .
+        /bin/mv "../${BUILD_DIR}/$(basename "${PACKAGE_NAME}")" .
         info "You can find ${PACKAGE_NAME} in ${NIGHTLY_DIR}"
     fi
 
@@ -279,7 +283,7 @@ configure_obs_build() {
         -DBUILD_BROWSER=ON \
         -DBROWSER_LEGACY="$(test "${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}" -le 3770 && echo "ON" || echo "OFF")" \
         -DWITH_RTMPS=ON \
-        -DCEF_ROOT_DIR="${DEPS_BUILD_DIR}/cef_binary_${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}_macosx64" \
+        -DCEF_ROOT_DIR="${DEPS_BUILD_DIR}/cef_binary_${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}_macos_x86_64" \
         -DCMAKE_BUILD_TYPE="${BUILD_CONFIG}" \
         ..
 
@@ -328,18 +332,34 @@ bundle_dylibs() {
         ./OBS.app/Contents/PlugIns/obs-x264.so
         ./OBS.app/Contents/PlugIns/text-freetype2.so
         ./OBS.app/Contents/PlugIns/obs-outputs.so
+        ./OBS.app/Contents/PlugIns/aja.so
+        ./OBS.app/Contents/PlugIns/aja-output-ui.so
         )
+
+    SEARCH_PATHS=(
+        /tmp/obsdeps/lib
+        /tmp/obsdeps/lib/QtSvg.framework
+        /tmp/obsdeps/lib/QtXml.framework
+        /tmp/obsdeps/lib/QtNetwork.framework
+        /tmp/obsdeps/lib/QtCore.framework
+        /tmp/obsdeps/lib/QtGui.framework
+        /tmp/obsdeps/lib/QtWidgets.framework
+        /tmp/obsdeps/lib/QtDBus.framework
+        /tmp/obsdeps/lib/QtPrintSupport.framework
+    )
     if ! [ "${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}" -le 3770 ]; then
-        ${CI_SCRIPTS}/app/dylibbundler -cd -of -a ./OBS.app -q -f \
+        "${CI_SCRIPTS}/app/dylibbundler" -cd -of -a ./OBS.app -q -f \
             -s ./OBS.app/Contents/MacOS \
             -s "${DEPS_BUILD_DIR}/sparkle/Sparkle.framework" \
             -s ./rundir/${BUILD_CONFIG}/bin/ \
+            $(echo "${SEARCH_PATHS[@]/#/-s }") \
             $(echo "${BUNDLE_PLUGINS[@]/#/-x }")
     else
-        ${CI_SCRIPTS}/app/dylibbundler -cd -of -a ./OBS.app -q -f \
+        "${CI_SCRIPTS}/app/dylibbundler" -cd -of -a ./OBS.app -q -f \
             -s ./OBS.app/Contents/MacOS \
             -s "${DEPS_BUILD_DIR}/sparkle/Sparkle.framework" \
             -s ./rundir/${BUILD_CONFIG}/bin/ \
+            $(echo "${SEARCH_PATHS[@]/#/-s }") \
             $(echo "${BUNDLE_PLUGINS[@]/#/-x }") \
             -x ./OBS.app/Contents/PlugIns/obs-browser-page
     fi
@@ -350,15 +370,6 @@ bundle_dylibs() {
     else
         /bin/cp ./libobs-opengl/${BUILD_CONFIG}/libobs-opengl.so ./OBS.app/Contents/Frameworks
     fi
-
-    step "Copy QtNetwork for plugin support"
-    /bin/cp -R /tmp/obsdeps/lib/QtNetwork.framework ./OBS.app/Contents/Frameworks
-    /bin/chmod -R +w ./OBS.app/Contents/Frameworks/QtNetwork.framework
-    /bin/rm -r ./OBS.app/Contents/Frameworks/QtNetwork.framework/Headers
-    /bin/rm -r ./OBS.app/Contents/Frameworks/QtNetwork.framework/Versions/5/Headers/
-    /bin/chmod 644 ./OBS.app/Contents/Frameworks/QtNetwork.framework/Versions/5/Resources/Info.plist
-    install_name_tool -id @executable_path/../Frameworks/QtNetwork.framework/Versions/5/QtNetwork ./OBS.app/Contents/Frameworks/QtNetwork.framework/Versions/5/QtNetwork
-    install_name_tool -change /tmp/obsdeps/lib/QtCore.framework/Versions/5/QtCore @executable_path/../Frameworks/QtCore.framework/Versions/5/QtCore ./OBS.app/Contents/Frameworks/QtNetwork.framework/Versions/5/QtNetwork
 }
 
 install_frameworks() {
@@ -371,7 +382,7 @@ install_frameworks() {
 
     hr "Adding Chromium Embedded Framework"
     step "Copy Framework..."
-    /bin/cp -R "${DEPS_BUILD_DIR}/cef_binary_${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}_macosx64/Release/Chromium Embedded Framework.framework" ./OBS.app/Contents/Frameworks/
+    /bin/cp -R "${DEPS_BUILD_DIR}/cef_binary_${MACOS_CEF_BUILD_VERSION:-${CI_MACOS_CEF_VERSION}}_macos_x86_64/Release/Chromium Embedded Framework.framework" ./OBS.app/Contents/Frameworks/
 }
 
 prepare_macos_bundle() {
@@ -401,21 +412,23 @@ prepare_macos_bundle() {
         /bin/cp -R "rundir/${BUILD_CONFIG}/bin/OBS Helper (Renderer).app" "./OBS.app/Contents/Frameworks/OBS Helper (Renderer).app"
     fi
     /bin/cp -R rundir/${BUILD_CONFIG}/data ./OBS.app/Contents/Resources
-    /bin/cp ${CI_SCRIPTS}/app/AppIcon.icns ./OBS.app/Contents/Resources
+    /bin/cp "${CI_SCRIPTS}/app/AppIcon.icns" ./OBS.app/Contents/Resources
     /bin/cp -R rundir/${BUILD_CONFIG}/obs-plugins/ ./OBS.app/Contents/PlugIns
-    /bin/cp ${CI_SCRIPTS}/app/Info.plist ./OBS.app/Contents
+    /bin/cp "${CI_SCRIPTS}/app/Info.plist" ./OBS.app/Contents
     # Scripting plugins are required to be placed in same directory as binary
     if [ -d ./OBS.app/Contents/Resources/data/obs-scripting ]; then
         /bin/mv ./OBS.app/Contents/Resources/data/obs-scripting/obslua.so ./OBS.app/Contents/MacOS/
         /bin/mv ./OBS.app/Contents/Resources/data/obs-scripting/_obspython.so ./OBS.app/Contents/MacOS/
-        /bin/mv ./OBS.app/Contents/Resources/data/obs-scripting/obspython.py ./OBS.app/Contents/MacOS/
+        /bin/mv ./OBS.app/Contents/Resources/data/obs-scripting/obspython.py ./OBS.app/Contents/Resources/
         /bin/rm -rf ./OBS.app/Contents/Resources/data/obs-scripting/
     fi
+    # dylibbundler will only copy actually linked files into bundle, but not symlinks
+    /bin/cp -cpR /tmp/obsdeps/lib/*.dylib ./OBS.app/Contents/Frameworks
 
     bundle_dylibs
     install_frameworks
 
-    /bin/cp ${CI_SCRIPTS}/app/OBSPublicDSAKey.pem ./OBS.app/Contents/Resources
+    /bin/cp "${CI_SCRIPTS}/app/OBSPublicDSAKey.pem" ./OBS.app/Contents/Resources
 
     step "Set bundle meta information..."
     /usr/bin/plutil -insert CFBundleVersion -string ${GIT_TAG}-${GIT_HASH} ./OBS.app/Contents/Info.plist
@@ -541,7 +554,7 @@ codesign_bundle() {
 
     step "Code-sign DAL Plugin..."
     /bin/echo -n "${COLOR_ORANGE}"
-    /usr/bin/codesign --force --options runtime --deep --sign "${CODESIGN_IDENT}" "./OBS.app/Contents/Resources/data/obs-mac-virtualcam.plugin"
+    /usr/bin/codesign --force --options runtime --deep --sign "${CODESIGN_IDENT}" "./OBS.app/Contents/Resources/data/obs-plugins/mac-virtualcam/obs-mac-virtualcam.plugin"
     /bin/echo -n "${COLOR_RESET}"
 
     step "Code-sign OBS code..."

@@ -191,6 +191,17 @@ enum obs_media_state {
  */
 #define OBS_SOURCE_CEA_708 (1 << 14)
 
+/**
+ * Source understands SRGB rendering
+ */
+#define OBS_SOURCE_SRGB (1 << 15)
+
+/**
+ * Source type prefers not to have its properties shown on creation
+ * (prefers to rely on defaults first)
+ */
+#define OBS_SOURCE_CAP_DONT_SHOW_PROPERTIES (1 << 16)
+
 /** @} */
 
 typedef void (*obs_source_enum_proc_t)(obs_source_t *parent,

@@ -2,6 +2,7 @@
 #include "window-basic-transform.hpp"
 #include "window-basic-main.hpp"
 
+Q_DECLARE_METATYPE(OBSScene);
 Q_DECLARE_METATYPE(OBSSceneItem);
 
 static bool find_sel(obs_scene_t *, obs_sceneitem_t *item, void *param)
@@ -22,7 +23,7 @@ static bool find_sel(obs_scene_t *, obs_sceneitem_t *item, void *param)
 	return true;
 };
 
-static OBSSceneItem FindASelectedItem(OBSScene scene)
+static OBSSceneItem FindASelectedItem(obs_scene_t *scene)
 {
 	OBSSceneItem item;
 	obs_scene_enum_items(scene, find_sel, &item);
@@ -73,8 +74,39 @@ OBSBasicTransform::OBSBasicTransform(OBSBasic *parent)
 	SetScene(scene);
 	SetItem(item);
 
+	std::string name = obs_source_get_name(obs_sceneitem_get_source(item));
+	setWindowTitle(QTStr("Basic.TransformWindow.Title").arg(name.c_str()));
+
+	OBSDataAutoRelease wrapper =
+		obs_scene_save_transform_states(main->GetCurrentScene(), false);
+	undo_data = std::string(obs_data_get_json(wrapper));
+
 	channelChangedSignal.Connect(obs_get_signal_handler(), "channel_change",
 				     OBSChannelChanged, this);
+}
+
+OBSBasicTransform::~OBSBasicTransform()
+{
+	OBSDataAutoRelease wrapper =
+		obs_scene_save_transform_states(main->GetCurrentScene(), false);
+
+	auto undo_redo = [](const std::string &data) {
+		OBSDataAutoRelease dat =
+			obs_data_create_from_json(data.c_str());
+		OBSSourceAutoRelease source = obs_get_source_by_name(
+			obs_data_get_string(dat, "scene_name"));
+		reinterpret_cast<OBSBasic *>(App()->GetMainWindow())
+			->SetCurrentScene(source.Get(), true);
+		obs_scene_load_transform_states(data.c_str());
+	};
+
+	std::string redo_data(obs_data_get_json(wrapper));
+	if (undo_data.compare(redo_data) != 0)
+		main->undo_s.add_action(
+			QTStr("Undo.Transform")
+				.arg(obs_source_get_name(obs_scene_get_source(
+					main->GetCurrentScene()))),
+			undo_redo, undo_redo, undo_data, redo_data);
 }
 
 void OBSBasicTransform::SetScene(OBSScene scene)
@@ -147,8 +179,8 @@ void OBSBasicTransform::OBSSceneItemRemoved(void *param, calldata_t *data)
 {
 	OBSBasicTransform *window =
 		reinterpret_cast<OBSBasicTransform *>(param);
-	OBSScene scene = (obs_scene_t *)calldata_ptr(data, "scene");
-	OBSSceneItem item = (obs_sceneitem_t *)calldata_ptr(data, "item");
+	obs_scene_t *scene = (obs_scene_t *)calldata_ptr(data, "scene");
+	obs_sceneitem_t *item = (obs_sceneitem_t *)calldata_ptr(data, "item");
 
 	if (item == window->item)
 		window->SetItem(FindASelectedItem(scene));
@@ -168,11 +200,14 @@ void OBSBasicTransform::OBSSceneItemDeselect(void *param, calldata_t *data)
 {
 	OBSBasicTransform *window =
 		reinterpret_cast<OBSBasicTransform *>(param);
-	OBSScene scene = (obs_scene_t *)calldata_ptr(data, "scene");
-	OBSSceneItem item = (obs_sceneitem_t *)calldata_ptr(data, "item");
+	obs_scene_t *scene = (obs_scene_t *)calldata_ptr(data, "scene");
+	obs_sceneitem_t *item = (obs_sceneitem_t *)calldata_ptr(data, "item");
 
-	if (item == window->item)
+	if (item == window->item) {
+		window->setWindowTitle(
+			QTStr("Basic.TransformWindow.NoSelectedSource"));
 		window->SetItem(FindASelectedItem(scene));
+	}
 }
 
 static const uint32_t listToAlign[] = {OBS_ALIGN_TOP | OBS_ALIGN_LEFT,
@@ -233,6 +268,9 @@ void OBSBasicTransform::RefreshControls()
 	ui->cropTop->setValue(int(crop.top));
 	ui->cropBottom->setValue(int(crop.bottom));
 	ignoreItemChange = false;
+
+	std::string name = obs_source_get_name(source);
+	setWindowTitle(QTStr("Basic.TransformWindow.Title").arg(name.c_str()));
 }
 
 void OBSBasicTransform::OnBoundsType(int index)
@@ -308,4 +346,19 @@ void OBSBasicTransform::OnCropChanged()
 void OBSBasicTransform::on_resetButton_clicked()
 {
 	main->on_actionResetTransform_triggered();
+}
+
+template<typename T> static T GetOBSRef(QListWidgetItem *item)
+{
+	return item->data(static_cast<int>(QtDataRole::OBSRef)).value<T>();
+}
+
+void OBSBasicTransform::OnSceneChanged(QListWidgetItem *current,
+				       QListWidgetItem *)
+{
+	if (!current)
+		return;
+
+	obs_scene_t *scene = GetOBSRef<OBSScene>(current);
+	this->SetScene(scene);
 }

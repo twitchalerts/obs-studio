@@ -50,6 +50,8 @@ private:
 	inline OBSSource GetFilter(int row, bool async);
 
 	void UpdateFilters();
+	void UpdateSplitter();
+	void UpdateSplitter(bool show_splitter_frame);
 	void UpdatePropertiesView(int row, bool async);
 
 	static void OBSSourceFilterAdded(void *param, calldata_t *data);
@@ -70,6 +72,8 @@ private:
 	void DuplicateItem(QListWidgetItem *item);
 
 	void FilterNameEdited(QWidget *editor, QListWidget *list);
+
+	void delete_filter(OBSSource filter);
 
 	bool isAsync;
 
@@ -122,6 +126,12 @@ public:
 	~OBSBasicFilters();
 
 	void Init();
+
+	inline void UpdateSource(obs_source_t *target)
+	{
+		if (source == target)
+			UpdateFilters();
+	}
 
 protected:
 	virtual void closeEvent(QCloseEvent *event) override;

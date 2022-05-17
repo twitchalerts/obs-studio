@@ -5,10 +5,11 @@
 #include <obs-config.h>
 
 #include "rtmp-format-ver.h"
-#include "twitch.h"
-#include "younow.h"
-#include "nimotv.h"
-#include "showroom.h"
+#include "service-specific/twitch.h"
+#include "service-specific/younow.h"
+#include "service-specific/nimotv.h"
+#include "service-specific/showroom.h"
+#include "service-specific/dacast.h"
 
 struct rtmp_common {
 	char *service;
@@ -423,6 +424,16 @@ static void fill_more_info_link(json_t *service, obs_data_t *settings)
 		obs_data_set_string(settings, "more_info_link", more_info_link);
 }
 
+static void fill_stream_key_link(json_t *service, obs_data_t *settings)
+{
+	const char *stream_key_link;
+
+	stream_key_link = get_string_val(service, "stream_key_link");
+	if (stream_key_link)
+		obs_data_set_string(settings, "stream_key_link",
+				    stream_key_link);
+}
+
 static inline json_t *find_service(json_t *root, const char *name,
 				   const char **p_new_name)
 {
@@ -486,6 +497,7 @@ static bool service_selected(obs_properties_t *props, obs_property_t *p,
 
 	fill_servers(obs_properties_get(props, "server"), service, name);
 	fill_more_info_link(service, settings);
+	fill_stream_key_link(service, settings);
 	return true;
 }
 
@@ -537,6 +549,8 @@ static obs_properties_t *rtmp_common_properties(void *unused)
 	return ppts;
 }
 
+static int get_bitrate_matrix_max(json_t *array);
+
 static void apply_video_encoder_settings(obs_data_t *settings,
 					 json_t *recommended)
 {
@@ -558,13 +572,21 @@ static void apply_video_encoder_settings(obs_data_t *settings,
 
 	obs_data_item_release(&enc_item);
 
+	int max_bitrate = 0;
+	item = json_object_get(recommended, "bitrate matrix");
+	if (json_is_array(item)) {
+		max_bitrate = get_bitrate_matrix_max(item);
+	}
+
 	item = json_object_get(recommended, "max video bitrate");
-	if (json_is_integer(item)) {
-		int max_bitrate = (int)json_integer_value(item);
-		if (obs_data_get_int(settings, "bitrate") > max_bitrate) {
-			obs_data_set_int(settings, "bitrate", max_bitrate);
-			obs_data_set_int(settings, "buffer_size", max_bitrate);
-		}
+	if (!max_bitrate && json_is_integer(item)) {
+		max_bitrate = (int)json_integer_value(item);
+	}
+
+	if (max_bitrate &&
+	    obs_data_get_int(settings, "bitrate") > max_bitrate) {
+		obs_data_set_int(settings, "bitrate", max_bitrate);
+		obs_data_set_int(settings, "buffer_size", max_bitrate);
 	}
 
 	item = json_object_get(recommended, "bframes");
@@ -684,6 +706,16 @@ static const char *rtmp_common_url(void *data)
 			return ingest->url;
 		}
 	}
+
+	if (service->service && strcmp(service->service, "Dacast") == 0) {
+		if (service->server && service->key) {
+			dacast_ingests_load_data(service->server, service->key);
+
+			struct dacast_ingest *ingest;
+			ingest = dacast_ingest(service->key);
+			return ingest->url;
+		}
+	}
 	return service->server;
 }
 
@@ -696,6 +728,14 @@ static const char *rtmp_common_key(void *data)
 			ingest = showroom_get_ingest(service->server,
 						     service->key);
 			return ingest->key;
+		}
+	}
+
+	if (service->service && strcmp(service->service, "Dacast") == 0) {
+		if (service->key) {
+			struct dacast_ingest *ingest;
+			ingest = dacast_ingest(service->key);
+			return ingest->streamkey;
 		}
 	}
 	return service->key;
@@ -720,6 +760,41 @@ static void rtmp_common_get_max_fps(void *data, int *fps)
 {
 	struct rtmp_common *service = data;
 	*fps = service->max_fps;
+}
+
+static int get_bitrate_matrix_max(json_t *array)
+{
+	size_t index;
+	json_t *item;
+
+	struct obs_video_info ovi;
+	if (!obs_get_video_info(&ovi))
+		return 0;
+
+	double cur_fps = (double)ovi.fps_num / (double)ovi.fps_den;
+
+	json_array_foreach (array, index, item) {
+		if (!json_is_object(item))
+			continue;
+
+		const char *res = get_string_val(item, "res");
+		double fps = (double)get_int_val(item, "fps") + 0.0000001;
+		int bitrate = get_int_val(item, "max bitrate");
+
+		if (!res)
+			continue;
+
+		int cx, cy;
+		int c = sscanf(res, "%dx%d", &cx, &cy);
+		if (c != 2)
+			continue;
+
+		if ((int)ovi.output_width == cx &&
+		    (int)ovi.output_height == cy && cur_fps <= fps)
+			return bitrate;
+	}
+
+	return 0;
 }
 
 static void rtmp_common_get_max_bitrate(void *data, int *video_bitrate,
@@ -749,13 +824,49 @@ static void rtmp_common_get_max_bitrate(void *data, int *video_bitrate,
 	}
 
 	if (video_bitrate) {
-		item = json_object_get(recommended, "max video bitrate");
-		if (json_is_integer(item))
-			*video_bitrate = (int)json_integer_value(item);
+		int bitrate = 0;
+		item = json_object_get(recommended, "bitrate matrix");
+		if (json_is_array(item)) {
+			bitrate = get_bitrate_matrix_max(item);
+		}
+		if (!bitrate) {
+			item = json_object_get(recommended,
+					       "max video bitrate");
+			if (json_is_integer(item))
+				bitrate = (int)json_integer_value(item);
+		}
+
+		*video_bitrate = bitrate;
 	}
 
 fail:
 	json_decref(root);
+}
+
+static const char *rtmp_common_username(void *data)
+{
+	struct rtmp_common *service = data;
+	if (service->service && strcmp(service->service, "Dacast") == 0) {
+		if (service->key) {
+			struct dacast_ingest *ingest;
+			ingest = dacast_ingest(service->key);
+			return ingest->username;
+		}
+	}
+	return NULL;
+}
+
+static const char *rtmp_common_password(void *data)
+{
+	struct rtmp_common *service = data;
+	if (service->service && strcmp(service->service, "Dacast") == 0) {
+		if (service->key) {
+			struct dacast_ingest *ingest;
+			ingest = dacast_ingest(service->key);
+			return ingest->password;
+		}
+	}
+	return NULL;
 }
 
 struct obs_service_info rtmp_common_service = {
@@ -767,6 +878,8 @@ struct obs_service_info rtmp_common_service = {
 	.get_properties = rtmp_common_properties,
 	.get_url = rtmp_common_url,
 	.get_key = rtmp_common_key,
+	.get_username = rtmp_common_username,
+	.get_password = rtmp_common_password,
 	.apply_encoder_settings = rtmp_common_apply_settings,
 	.get_output_type = rtmp_common_get_output_type,
 	.get_supported_resolutions = rtmp_common_get_supported_resolutions,

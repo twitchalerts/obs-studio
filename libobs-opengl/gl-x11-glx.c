@@ -163,7 +163,6 @@ static xcb_get_geometry_reply_t *get_window_geometry(xcb_connection_t *xcb_conn,
 		return 0;
 	}
 
-	free(error);
 	return reply;
 }
 
@@ -195,7 +194,6 @@ static bool gl_context_create(struct gl_platform *plat)
 	}
 
 	plat->context = context;
-	plat->display = display;
 
 	plat->pbuffer =
 		glXCreatePbuffer(display, config[0], ctx_pbuffer_attribs);
@@ -273,8 +271,7 @@ static Display *open_windowless_display(void)
 	return display;
 
 error:
-	if (display)
-		XCloseDisplay(display);
+	XCloseDisplay(display);
 	return NULL;
 }
 
@@ -581,13 +578,14 @@ static void gl_x11_glx_device_present(gs_device_t *device)
 
 static struct gs_texture *gl_x11_glx_device_texture_create_from_dmabuf(
 	gs_device_t *device, unsigned int width, unsigned int height,
-	enum gs_color_format color_format, uint32_t n_planes, const int *fds,
-	const uint32_t *strides, const uint32_t *offsets,
-	const uint64_t *modifiers)
+	uint32_t drm_format, enum gs_color_format color_format,
+	uint32_t n_planes, const int *fds, const uint32_t *strides,
+	const uint32_t *offsets, const uint64_t *modifiers)
 {
 	UNUSED_PARAMETER(device);
 	UNUSED_PARAMETER(width);
 	UNUSED_PARAMETER(height);
+	UNUSED_PARAMETER(drm_format);
 	UNUSED_PARAMETER(color_format);
 	UNUSED_PARAMETER(n_planes);
 	UNUSED_PARAMETER(fds);
@@ -596,6 +594,30 @@ static struct gs_texture *gl_x11_glx_device_texture_create_from_dmabuf(
 	UNUSED_PARAMETER(modifiers);
 
 	return NULL;
+}
+
+static bool gl_x11_glx_device_query_dmabuf_capabilities(
+	gs_device_t *device, enum gs_dmabuf_flags *dmabuf_flags,
+	uint32_t **drm_formats, size_t *n_formats)
+{
+	UNUSED_PARAMETER(device);
+	UNUSED_PARAMETER(dmabuf_flags);
+	UNUSED_PARAMETER(drm_formats);
+	UNUSED_PARAMETER(n_formats);
+
+	return false;
+}
+
+static bool gl_x11_glx_device_query_dmabuf_modifiers_for_format(
+	gs_device_t *device, uint32_t drm_format, uint64_t **modifiers,
+	size_t *n_modifiers)
+{
+	UNUSED_PARAMETER(device);
+	UNUSED_PARAMETER(drm_format);
+	UNUSED_PARAMETER(modifiers);
+	UNUSED_PARAMETER(n_modifiers);
+
+	return false;
 }
 
 static const struct gl_winsys_vtable glx_winsys_vtable = {
@@ -615,6 +637,10 @@ static const struct gl_winsys_vtable glx_winsys_vtable = {
 	.device_present = gl_x11_glx_device_present,
 	.device_texture_create_from_dmabuf =
 		gl_x11_glx_device_texture_create_from_dmabuf,
+	.device_query_dmabuf_capabilities =
+		gl_x11_glx_device_query_dmabuf_capabilities,
+	.device_query_dmabuf_modifiers_for_format =
+		gl_x11_glx_device_query_dmabuf_modifiers_for_format,
 };
 
 const struct gl_winsys_vtable *gl_x11_glx_get_winsys_vtable(void)
