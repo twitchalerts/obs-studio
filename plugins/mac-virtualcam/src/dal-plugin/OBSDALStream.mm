@@ -21,7 +21,6 @@
 
 #import <AppKit/AppKit.h>
 #import <mach/mach_time.h>
-#include <CoreMediaIO/CMIOSampleBuffer.h>
 
 #import "Logging.h"
 #import "CMSampleBufferUtils.h"
@@ -276,6 +275,7 @@
 		pxdata, width, height, 8,
 		CVPixelBufferGetBytesPerRowOfPlane(pxbuffer, 0), rgbColorSpace,
 		kCGImageAlphaPremultipliedFirst | kCGImageByteOrder32Big);
+	CFRelease(rgbColorSpace);
 	NSParameterAssert(context);
 
 	NSGraphicsContext *nsContext = [NSGraphicsContext

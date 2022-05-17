@@ -22,6 +22,10 @@ protected:
 		std::unique_ptr<obs_properties_t, properties_delete_t>;
 
 	properties_t props;
+	OBSDataAutoRelease oldData;
+
+	void SaveOldProperties(obs_source_t *source);
+	void SetUndoProperties(obs_source_t *source, bool repeatable = false);
 
 public:
 	SourceToolbar(QWidget *parent, OBSSource source);

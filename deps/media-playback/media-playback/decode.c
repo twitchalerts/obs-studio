@@ -25,7 +25,8 @@
 enum AVHWDeviceType hw_priority[] = {
 	AV_HWDEVICE_TYPE_D3D11VA, AV_HWDEVICE_TYPE_DXVA2,
 	AV_HWDEVICE_TYPE_VAAPI,   AV_HWDEVICE_TYPE_VDPAU,
-	AV_HWDEVICE_TYPE_QSV,     AV_HWDEVICE_TYPE_NONE,
+	AV_HWDEVICE_TYPE_QSV,     AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+	AV_HWDEVICE_TYPE_NONE,
 };
 
 static bool has_hw_type(AVCodec *c, enum AVHWDeviceType type,
@@ -434,4 +435,5 @@ void mp_decode_flush(struct mp_decode *d)
 	d->eof = false;
 	d->frame_pts = 0;
 	d->frame_ready = false;
+	d->next_pts = 0;
 }

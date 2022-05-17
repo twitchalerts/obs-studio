@@ -77,8 +77,7 @@ void gs_texture_2d::Rebuild(ID3D11Device *dev)
 					     (void **)&texture);
 		if (FAILED(hr)) {
 			blog(LOG_WARNING,
-			     "Failed to rebuild shared texture: ", "0x%08lX",
-			     hr);
+			     "Failed to rebuild shared texture: 0x%08lX", hr);
 			RebuildSharedTextureFallback();
 		}
 	}
@@ -338,8 +337,7 @@ void gs_texture_3d::Rebuild(ID3D11Device *dev)
 					     (void **)&texture);
 		if (FAILED(hr)) {
 			blog(LOG_WARNING,
-			     "Failed to rebuild shared texture: ", "0x%08lX",
-			     hr);
+			     "Failed to rebuild shared texture: 0x%08lX", hr);
 			RebuildSharedTextureFallback();
 		}
 	}
@@ -471,14 +469,15 @@ try {
 	context->ClearState();
 	context->Flush();
 
-	context.Release();
-	device.Release();
-	adapter.Release();
-	factory.Release();
+	context.Clear();
+	device.Clear();
+	adapter.Clear();
+	factory.Clear();
 
 	/* ----------------------------------------------------------------- */
 
-	InitFactory(adpIdx);
+	InitFactory();
+	InitAdapter(adpIdx);
 
 	uint32_t createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 	hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr,

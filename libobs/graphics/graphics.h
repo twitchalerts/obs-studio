@@ -76,6 +76,7 @@ enum gs_color_format {
 	GS_RGBA_UNORM,
 	GS_BGRX_UNORM,
 	GS_BGRA_UNORM,
+	GS_RG16,
 };
 
 enum gs_zstencil_format {
@@ -109,6 +110,14 @@ enum gs_blend_type {
 	GS_BLEND_DSTALPHA,
 	GS_BLEND_INVDSTALPHA,
 	GS_BLEND_SRCALPHASAT,
+};
+
+enum gs_blend_op_type {
+	GS_BLEND_OP_ADD,
+	GS_BLEND_OP_SUBTRACT,
+	GS_BLEND_OP_REVERSE_SUBTRACT,
+	GS_BLEND_OP_MIN,
+	GS_BLEND_OP_MAX
 };
 
 enum gs_depth_test {
@@ -559,10 +568,19 @@ EXPORT gs_shader_t *gs_vertexshader_create_from_file(const char *file,
 EXPORT gs_shader_t *gs_pixelshader_create_from_file(const char *file,
 						    char **error_string);
 
+enum gs_image_alpha_mode {
+	GS_IMAGE_ALPHA_STRAIGHT,
+	GS_IMAGE_ALPHA_PREMULTIPLY_SRGB,
+	GS_IMAGE_ALPHA_PREMULTIPLY,
+};
+
 EXPORT gs_texture_t *gs_texture_create_from_file(const char *file);
 EXPORT uint8_t *gs_create_texture_file_data(const char *file,
 					    enum gs_color_format *format,
 					    uint32_t *cx, uint32_t *cy);
+EXPORT uint8_t *gs_create_texture_file_data2(
+	const char *file, enum gs_image_alpha_mode alpha_mode,
+	enum gs_color_format *format, uint32_t *cx, uint32_t *cy);
 
 #define GS_FLIP_U (1 << 0)
 #define GS_FLIP_V (1 << 1)
@@ -719,6 +737,8 @@ EXPORT void gs_blend_function_separate(enum gs_blend_type src_c,
 				       enum gs_blend_type dest_c,
 				       enum gs_blend_type src_a,
 				       enum gs_blend_type dest_a);
+EXPORT void gs_blend_op(enum gs_blend_op_type op);
+
 EXPORT void gs_depth_function(enum gs_depth_test test);
 
 EXPORT void gs_stencil_function(enum gs_stencil_side side,
@@ -874,6 +894,8 @@ EXPORT void gs_duplicator_destroy(gs_duplicator_t *duplicator);
 EXPORT bool gs_duplicator_update_frame(gs_duplicator_t *duplicator);
 EXPORT gs_texture_t *gs_duplicator_get_texture(gs_duplicator_t *duplicator);
 
+EXPORT uint32_t gs_get_adapter_count(void);
+
 /** creates a windows GDI-lockable texture */
 EXPORT gs_texture_t *gs_texture_create_gdi(uint32_t width, uint32_t height);
 
@@ -882,6 +904,7 @@ EXPORT void gs_texture_release_dc(gs_texture_t *gdi_tex);
 
 /** creates a windows shared texture from a texture handle */
 EXPORT gs_texture_t *gs_texture_open_shared(uint32_t handle);
+EXPORT gs_texture_t *gs_texture_open_nt_shared(uint32_t handle);
 
 #define GS_INVALID_HANDLE (uint32_t) - 1
 EXPORT uint32_t gs_texture_get_shared_handle(gs_texture_t *tex);
@@ -913,14 +936,26 @@ EXPORT gs_stagesurf_t *gs_stagesurface_create_nv12(uint32_t width,
 EXPORT void gs_register_loss_callbacks(const struct gs_device_loss *callbacks);
 EXPORT void gs_unregister_loss_callbacks(void *data);
 
-#elif __linux__
+#elif defined(__linux__) || defined(__FreeBSD__)
 
-EXPORT gs_texture_t *
-gs_texture_create_from_dmabuf(unsigned int width, unsigned int height,
-			      enum gs_color_format color_format,
-			      uint32_t n_planes, const int *fds,
-			      const uint32_t *strides, const uint32_t *offsets,
-			      const uint64_t *modifiers);
+EXPORT gs_texture_t *gs_texture_create_from_dmabuf(
+	unsigned int width, unsigned int height, uint32_t drm_format,
+	enum gs_color_format color_format, uint32_t n_planes, const int *fds,
+	const uint32_t *strides, const uint32_t *offsets,
+	const uint64_t *modifiers);
+
+enum gs_dmabuf_flags {
+	GS_DMABUF_FLAG_NONE = 0,
+	GS_DMABUF_FLAG_IMPLICIT_MODIFIERS_SUPPORTED = (1 << 0),
+};
+
+EXPORT bool gs_query_dmabuf_capabilities(enum gs_dmabuf_flags *dmabuf_flags,
+					 uint32_t **drm_formats,
+					 size_t *n_formats);
+
+EXPORT bool gs_query_dmabuf_modifiers_for_format(uint32_t drm_format,
+						 uint64_t **modifiers,
+						 size_t *n_modifiers);
 
 #endif
 
@@ -929,48 +964,34 @@ gs_texture_create_from_dmabuf(unsigned int width, unsigned int height,
 static inline uint32_t gs_get_format_bpp(enum gs_color_format format)
 {
 	switch (format) {
+	case GS_DXT1:
+		return 4;
 	case GS_A8:
-		return 8;
 	case GS_R8:
+	case GS_DXT3:
+	case GS_DXT5:
 		return 8;
+	case GS_R16:
+	case GS_R16F:
+	case GS_R8G8:
+		return 16;
 	case GS_RGBA:
-		return 32;
 	case GS_BGRX:
-		return 32;
 	case GS_BGRA:
-		return 32;
 	case GS_R10G10B10A2:
+	case GS_RG16F:
+	case GS_R32F:
+	case GS_RGBA_UNORM:
+	case GS_BGRX_UNORM:
+	case GS_BGRA_UNORM:
+	case GS_RG16:
 		return 32;
 	case GS_RGBA16:
-		return 64;
-	case GS_R16:
-		return 16;
 	case GS_RGBA16F:
+	case GS_RG32F:
 		return 64;
 	case GS_RGBA32F:
 		return 128;
-	case GS_RG16F:
-		return 32;
-	case GS_RG32F:
-		return 64;
-	case GS_R16F:
-		return 16;
-	case GS_R32F:
-		return 32;
-	case GS_DXT1:
-		return 4;
-	case GS_DXT3:
-		return 8;
-	case GS_DXT5:
-		return 8;
-	case GS_R8G8:
-		return 16;
-	case GS_RGBA_UNORM:
-		return 32;
-	case GS_BGRX_UNORM:
-		return 32;
-	case GS_BGRA_UNORM:
-		return 32;
 	case GS_UNKNOWN:
 		return 0;
 	}
@@ -992,6 +1013,21 @@ static inline bool gs_is_srgb_format(enum gs_color_format format)
 		return true;
 	default:
 		return false;
+	}
+}
+
+static inline enum gs_color_format
+gs_generalize_format(enum gs_color_format format)
+{
+	switch (format) {
+	case GS_RGBA_UNORM:
+		return GS_RGBA;
+	case GS_BGRX_UNORM:
+		return GS_BGRX;
+	case GS_BGRA_UNORM:
+		return GS_BGRA;
+	default:
+		return format;
 	}
 }
 

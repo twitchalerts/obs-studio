@@ -1,7 +1,10 @@
 #pragma once
 
 #include "vertical-scroll-area.hpp"
+#include <obs-data.h>
 #include <obs.hpp>
+#include <qtimer.h>
+#include <QPointer>
 #include <vector>
 #include <memory>
 
@@ -10,7 +13,9 @@ class OBSPropertiesView;
 class QLabel;
 
 typedef obs_properties_t *(*PropertiesReloadCallback)(void *obj);
-typedef void (*PropertiesUpdateCallback)(void *obj, obs_data_t *settings);
+typedef void (*PropertiesUpdateCallback)(void *obj, obs_data_t *old_settings,
+					 obs_data_t *new_settings);
+typedef void (*PropertiesVisualUpdateCb)(void *obj, obs_data_t *settings);
 
 /* ------------------------------------------------------------------------- */
 
@@ -23,6 +28,9 @@ private:
 	OBSPropertiesView *view;
 	obs_property_t *property;
 	QWidget *widget;
+	QPointer<QTimer> update_timer;
+	bool recently_updated = false;
+	OBSData old_settings_cache;
 
 	void BoolChanged(const char *setting);
 	void IntChanged(const char *setting);
@@ -45,6 +53,16 @@ public:
 			  QWidget *widget_)
 		: view(view_), property(prop), widget(widget_)
 	{
+	}
+
+	~WidgetInfo()
+	{
+		if (update_timer) {
+			update_timer->stop();
+			QMetaObject::invokeMethod(update_timer, "timeout");
+			update_timer->deleteLater();
+			obs_data_release(old_settings_cache);
+		}
 	}
 
 public slots:
@@ -79,10 +97,12 @@ private:
 	QWidget *widget = nullptr;
 	properties_t properties;
 	OBSData settings;
-	void *obj = nullptr;
+	OBSWeakObjectAutoRelease weakObj;
+	void *rawObj = nullptr;
 	std::string type;
 	PropertiesReloadCallback reloadCallback;
 	PropertiesUpdateCallback callback = nullptr;
+	PropertiesVisualUpdateCb visUpdateCb = nullptr;
 	int minSize;
 	std::vector<std::unique_ptr<WidgetInfo>> children;
 	std::string lastFocused;
@@ -133,15 +153,63 @@ signals:
 	void PropertiesRefreshed();
 
 public:
+	OBSPropertiesView(OBSData settings, obs_object_t *obj,
+			  PropertiesReloadCallback reloadCallback,
+			  PropertiesUpdateCallback callback,
+			  PropertiesVisualUpdateCb cb = nullptr,
+			  int minSize = 0);
 	OBSPropertiesView(OBSData settings, void *obj,
 			  PropertiesReloadCallback reloadCallback,
-			  PropertiesUpdateCallback callback, int minSize = 0);
+			  PropertiesUpdateCallback callback,
+			  PropertiesVisualUpdateCb cb = nullptr,
+			  int minSize = 0);
 	OBSPropertiesView(OBSData settings, const char *type,
 			  PropertiesReloadCallback reloadCallback,
 			  int minSize = 0);
 
+#define obj_constructor(type)                                              \
+	inline OBSPropertiesView(OBSData settings, obs_##type##_t *type,   \
+				 PropertiesReloadCallback reloadCallback,  \
+				 PropertiesUpdateCallback callback,        \
+				 PropertiesVisualUpdateCb cb = nullptr,    \
+				 int minSize = 0)                          \
+		: OBSPropertiesView(settings, (obs_object_t *)type,        \
+				    reloadCallback, callback, cb, minSize) \
+	{                                                                  \
+	}
+
+	obj_constructor(source);
+	obj_constructor(output);
+	obj_constructor(encoder);
+	obj_constructor(service);
+#undef obj_constructor
+
 	inline obs_data_t *GetSettings() const { return settings; }
 
-	inline void UpdateSettings() { callback(obj, settings); }
+	inline void UpdateSettings()
+	{
+		if (callback)
+			callback(OBSGetStrongRef(weakObj), nullptr, settings);
+		else if (visUpdateCb)
+			visUpdateCb(OBSGetStrongRef(weakObj), settings);
+	}
 	inline bool DeferUpdate() const { return deferUpdate; }
+
+	inline OBSObject GetObject() const { return OBSGetStrongRef(weakObj); }
+
+#define Def_IsObject(type)                                \
+	inline bool IsObject(obs_##type##_t *type) const  \
+	{                                                 \
+		OBSObject obj = OBSGetStrongRef(weakObj); \
+		return obj.Get() == (obs_object_t *)type; \
+	}
+
+	/* clang-format off */
+	Def_IsObject(source)
+	Def_IsObject(output)
+	Def_IsObject(encoder)
+	Def_IsObject(service)
+	/* clang-format on */
+
+#undef Def_IsObject
 };

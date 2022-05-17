@@ -20,6 +20,13 @@ extern "C" {
 #endif
 
 #define NUM_BUFFERS 3
+#define HOOK_VERBOSE_LOGGING 0
+
+#if HOOK_VERBOSE_LOGGING
+#define hlog_verbose(...) hlog(__VA_ARGS__)
+#else
+#define hlog_verbose(...) (void)0
+#endif
 
 extern void hlog(const char *format, ...);
 extern void hlog_hr(const char *text, HRESULT hr);
@@ -50,13 +57,13 @@ extern bool hook_gl(void);
 extern bool hook_vulkan(void);
 #endif
 
-extern void d3d10_capture(void *swap, void *backbuffer, bool capture_overlay);
+extern void d3d10_capture(void *swap, void *backbuffer);
 extern void d3d10_free(void);
-extern void d3d11_capture(void *swap, void *backbuffer, bool capture_overlay);
+extern void d3d11_capture(void *swap, void *backbuffer);
 extern void d3d11_free(void);
 
 #if COMPILE_D3D12_HOOK
-extern void d3d12_capture(void *swap, void *backbuffer, bool capture_overlay);
+extern void d3d12_capture(void *swap, void *backbuffer);
 extern void d3d12_free(void);
 #endif
 
@@ -220,16 +227,27 @@ extern bool init_pipe(void);
 
 static inline bool capture_should_init(void)
 {
-	if (!capture_active() && capture_restarted()) {
-		if (capture_alive()) {
-			if (!ipc_pipe_client_valid(&pipe)) {
-				init_pipe();
+	bool should_init = false;
+
+	if (!capture_active()) {
+		if (capture_restarted()) {
+			if (capture_alive()) {
+				if (!ipc_pipe_client_valid(&pipe)) {
+					init_pipe();
+				}
+
+				should_init = true;
+			} else {
+				hlog_verbose(
+					"capture_should_init: inactive, restarted, not alive");
 			}
-			return true;
+		} else {
+			hlog_verbose(
+				"capture_should_init: inactive, not restarted");
 		}
 	}
 
-	return false;
+	return should_init;
 }
 
 #ifdef __cplusplus

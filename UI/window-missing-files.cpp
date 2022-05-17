@@ -68,7 +68,7 @@ QWidget *MissingFilesPathItemDelegate::createEditor(
 	};
 
 	QHBoxLayout *layout = new QHBoxLayout();
-	layout->setMargin(0);
+	layout->setContentsMargins(0, 0, 0, 0);
 	layout->setSpacing(0);
 
 	QLineEdit *text = new QLineEdit();
@@ -265,12 +265,12 @@ QVariant MissingFilesModel::data(const QModelIndex &index, int role) const
 		   index.column() == MissingFilesColumn::Source) {
 		OBSBasic *main =
 			reinterpret_cast<OBSBasic *>(App()->GetMainWindow());
-		obs_source_t *source = obs_get_source_by_name(
+		OBSSourceAutoRelease source = obs_get_source_by_name(
 			files[index.row()].source.toStdString().c_str());
 
-		result = main->GetSourceIcon(obs_source_get_id(source));
-
-		obs_source_release(source);
+		if (source) {
+			result = main->GetSourceIcon(obs_source_get_id(source));
+		}
 	} else if (role == Qt::FontRole &&
 		   index.column() == MissingFilesColumn::State) {
 		QFont font = QFont();

@@ -6,19 +6,20 @@
 #include <d3d11on12.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <inttypes.h>
+
+#include <detours.h>
 
 #include "dxgi-helpers.hpp"
-#include "../funchook.h"
 
 #define MAX_BACKBUFFERS 8
 
-typedef HRESULT(STDMETHODCALLTYPE *execute_command_lists_t)(
+typedef HRESULT(STDMETHODCALLTYPE *PFN_ExecuteCommandLists)(
 	ID3D12CommandQueue *, UINT, ID3D12CommandList *const *);
 
-static struct func_hook execute_command_lists;
+static PFN_ExecuteCommandLists RealExecuteCommandLists = nullptr;
 
 struct d3d12_data {
-	ID3D12Device *device; /* do not release */
 	uint32_t cx;
 	uint32_t cy;
 	DXGI_FORMAT format;
@@ -45,7 +46,8 @@ struct d3d12_data {
 static struct d3d12_data data = {};
 
 extern thread_local bool dxgi_presenting;
-extern ID3D12CommandQueue *dxgi_possible_swap_queue;
+extern ID3D12CommandQueue *dxgi_possible_swap_queues[8];
+extern size_t dxgi_possible_swap_queue_count;
 extern bool dxgi_present_attempted;
 
 void d3d12_free(void)
@@ -87,10 +89,9 @@ static bool create_d3d12_tex(bb_info &bb)
 
 	for (UINT i = 0; i < bb.count; i++) {
 		hr = data.device11on12->CreateWrappedResource(
-			bb.backbuffer[i], &rf11,
-			D3D12_RESOURCE_STATE_COPY_SOURCE,
-			D3D12_RESOURCE_STATE_PRESENT, __uuidof(ID3D11Resource),
-			(void **)&data.backbuffer11[i]);
+			bb.backbuffer[i], &rf11, D3D12_RESOURCE_STATE_PRESENT,
+			D3D12_RESOURCE_STATE_PRESENT,
+			IID_PPV_ARGS(&data.backbuffer11[i]));
 		if (FAILED(hr)) {
 			hlog_hr("create_d3d12_tex: failed to create "
 				"backbuffer11",
@@ -117,14 +118,8 @@ static bool create_d3d12_tex(bb_info &bb)
 		return false;
 	}
 
-	for (UINT i = 0; i < bb.count; i++) {
-		data.device11on12->ReleaseWrappedResources(
-			&data.backbuffer11[i], 1);
-	}
-
 	IDXGIResource *dxgi_res;
-	hr = data.copy_tex->QueryInterface(__uuidof(IDXGIResource),
-					   (void **)&dxgi_res);
+	hr = data.copy_tex->QueryInterface(&dxgi_res);
 	if (FAILED(hr)) {
 		hlog_hr("create_d3d12_tex: failed to query "
 			"IDXGIResource interface from texture",
@@ -142,15 +137,12 @@ static bool create_d3d12_tex(bb_info &bb)
 	return true;
 }
 
-typedef PFN_D3D11ON12_CREATE_DEVICE create_11_on_12_t;
-
-static bool d3d12_init_11on12(void)
+static bool d3d12_init_11on12(ID3D12Device *device)
 {
 	static HMODULE d3d11 = nullptr;
-	static create_11_on_12_t create_11_on_12 = nullptr;
+	static PFN_D3D11ON12_CREATE_DEVICE create_11_on_12 = nullptr;
 	static bool initialized_11 = false;
 	static bool initialized_func = false;
-	HRESULT hr;
 
 	if (!initialized_11 && !d3d11) {
 		d3d11 = load_system_library("d3d11.dll");
@@ -165,7 +157,7 @@ static bool d3d12_init_11on12(void)
 	}
 
 	if (!initialized_func && !create_11_on_12) {
-		create_11_on_12 = (create_11_on_12_t)GetProcAddress(
+		create_11_on_12 = (PFN_D3D11ON12_CREATE_DEVICE)GetProcAddress(
 			d3d11, "D3D11On12CreateDevice");
 		if (!create_11_on_12) {
 			hlog("d3d12_init_11on12: Failed to get "
@@ -179,28 +171,33 @@ static bool d3d12_init_11on12(void)
 		return false;
 	}
 
-	IUnknown *queue = nullptr;
-	IUnknown *const *queues = nullptr;
-	UINT num_queues = 0;
-	if (global_hook_info->d3d12_use_swap_queue) {
-		hlog("d3d12_init_11on12: creating 11 device with swap queue");
-		queue = dxgi_possible_swap_queue;
-		queues = &queue;
-		num_queues = 1;
-	} else {
-		hlog("d3d12_init_11on12: creating 11 device without swap queue");
+	bool created = false;
+
+	for (size_t i = 0; i < dxgi_possible_swap_queue_count; ++i) {
+		hlog("d3d12_init_11on12: creating 11 device: queue=0x%" PRIX64,
+		     (uint64_t)(uintptr_t)dxgi_possible_swap_queues[i]);
+		IUnknown *const queue = dxgi_possible_swap_queues[i];
+		const HRESULT hr = create_11_on_12(device, 0, nullptr, 0,
+						   &queue, 1, 0, &data.device11,
+						   &data.context11, nullptr);
+		created = SUCCEEDED(hr);
+		if (created) {
+			break;
+		}
+
+		hlog_hr("d3d12_init_11on12: failed to create 11 device", hr);
 	}
 
-	hr = create_11_on_12(data.device, 0, nullptr, 0, queues, num_queues, 0,
-			     &data.device11, &data.context11, nullptr);
-
-	if (FAILED(hr)) {
-		hlog_hr("d3d12_init_11on12: failed to create 11 device", hr);
+	if (!created) {
 		return false;
 	}
 
-	data.device11->QueryInterface(__uuidof(ID3D11On12Device),
-				      (void **)&data.device11on12);
+	memset(dxgi_possible_swap_queues, 0, sizeof(dxgi_possible_swap_queues));
+	dxgi_possible_swap_queue_count = 0;
+	dxgi_present_attempted = false;
+
+	const HRESULT hr =
+		data.device11->QueryInterface(IID_PPV_ARGS(&data.device11on12));
 	if (FAILED(hr)) {
 		hlog_hr("d3d12_init_11on12: failed to query 11on12 device", hr);
 		return false;
@@ -209,9 +206,9 @@ static bool d3d12_init_11on12(void)
 	return true;
 }
 
-static bool d3d12_shtex_init(HWND window, bb_info &bb)
+static bool d3d12_shtex_init(ID3D12Device *device, HWND window, bb_info &bb)
 {
-	if (!d3d12_init_11on12()) {
+	if (!d3d12_init_11on12(device)) {
 		return false;
 	}
 	if (!create_d3d12_tex(bb)) {
@@ -245,7 +242,7 @@ static inline bool d3d12_init_format(IDXGISwapChain *swap, HWND &window,
 	data.cx = desc.BufferDesc.Width;
 	data.cy = desc.BufferDesc.Height;
 
-	hr = swap->QueryInterface(__uuidof(IDXGISwapChain3), (void **)&swap3);
+	hr = swap->QueryInterface(&swap3);
 	if (SUCCEEDED(hr)) {
 		data.dxgi_1_4 = true;
 		hlog("We're DXGI1.4 boys!");
@@ -270,8 +267,7 @@ static inline bool d3d12_init_format(IDXGISwapChain *swap, HWND &window,
 	}
 
 	for (UINT i = 0; i < bb.count; i++) {
-		hr = swap->GetBuffer(i, __uuidof(ID3D12Resource),
-				     (void **)&bb.backbuffer[i]);
+		hr = swap->GetBuffer(i, IID_PPV_ARGS(&bb.backbuffer[i]));
 		if (SUCCEEDED(hr)) {
 			bb.backbuffer[i]->Release();
 		} else {
@@ -284,29 +280,28 @@ static inline bool d3d12_init_format(IDXGISwapChain *swap, HWND &window,
 
 static void d3d12_init(IDXGISwapChain *swap)
 {
-	bb_info bb = {};
-	HWND window;
-	HRESULT hr;
+	ID3D12Device *device = nullptr;
+	const HRESULT hr = swap->GetDevice(IID_PPV_ARGS(&device));
+	if (SUCCEEDED(hr)) {
+		hlog("d3d12_init: device=0x%" PRIX64,
+		     (uint64_t)(uintptr_t)device);
 
-	hr = swap->GetDevice(__uuidof(ID3D12Device), (void **)&data.device);
-	if (FAILED(hr)) {
+		HWND window;
+		bb_info bb = {};
+		if (d3d12_init_format(swap, window, bb)) {
+			if (global_hook_info->force_shmem) {
+				hlog("d3d12_init: shared memory capture currently "
+				     "unsupported; ignoring");
+			}
+
+			if (!d3d12_shtex_init(device, window, bb))
+				d3d12_free();
+		}
+
+		device->Release();
+	} else {
 		hlog_hr("d3d12_init: failed to get device from swap", hr);
-		return;
 	}
-
-	data.device->Release();
-
-	if (!d3d12_init_format(swap, window, bb)) {
-		return;
-	}
-
-	if (global_hook_info->force_shmem) {
-		hlog("d3d12_init: shared memory capture currently "
-		     "unsupported; ignoring");
-	}
-
-	if (!d3d12_shtex_init(window, bb))
-		d3d12_free();
 }
 
 static inline void d3d12_copy_texture(ID3D11Resource *dst, ID3D11Resource *src)
@@ -318,8 +313,7 @@ static inline void d3d12_copy_texture(ID3D11Resource *dst, ID3D11Resource *src)
 	}
 }
 
-static inline void d3d12_shtex_capture(IDXGISwapChain *swap,
-				       bool capture_overlay)
+static inline void d3d12_shtex_capture(IDXGISwapChain *swap)
 {
 	bool dxgi_1_4 = data.dxgi_1_4;
 	UINT cur_idx;
@@ -328,10 +322,6 @@ static inline void d3d12_shtex_capture(IDXGISwapChain *swap,
 		IDXGISwapChain3 *swap3 =
 			reinterpret_cast<IDXGISwapChain3 *>(swap);
 		cur_idx = swap3->GetCurrentBackBufferIndex();
-		if (!capture_overlay) {
-			if (++cur_idx >= data.backbuffer_count)
-				cur_idx = 0;
-		}
 	} else {
 		cur_idx = data.cur_backbuffer;
 	}
@@ -349,7 +339,7 @@ static inline void d3d12_shtex_capture(IDXGISwapChain *swap,
 	}
 }
 
-void d3d12_capture(void *swap_ptr, void *, bool capture_overlay)
+void d3d12_capture(void *swap_ptr, void *)
 {
 	IDXGISwapChain *swap = (IDXGISwapChain *)swap_ptr;
 
@@ -360,39 +350,56 @@ void d3d12_capture(void *swap_ptr, void *, bool capture_overlay)
 		d3d12_init(swap);
 	}
 	if (capture_ready()) {
-		d3d12_shtex_capture(swap, capture_overlay);
+		d3d12_shtex_capture(swap);
 	}
+}
+
+static bool try_append_queue_if_unique(ID3D12CommandQueue *queue)
+{
+	for (size_t i = 0; i < dxgi_possible_swap_queue_count; ++i) {
+		if (dxgi_possible_swap_queues[i] == queue)
+			return false;
+	}
+
+	dxgi_possible_swap_queues[dxgi_possible_swap_queue_count] = queue;
+	++dxgi_possible_swap_queue_count;
+	return true;
 }
 
 static HRESULT STDMETHODCALLTYPE
 hook_execute_command_lists(ID3D12CommandQueue *queue, UINT NumCommandLists,
 			   ID3D12CommandList *const *ppCommandLists)
 {
-	HRESULT hr;
+	hlog_verbose("ExecuteCommandLists callback: queue=0x%" PRIX64,
+		     (uint64_t)(uintptr_t)queue);
 
-	if (!dxgi_possible_swap_queue) {
-		if (dxgi_presenting) {
-			hlog("D3D12 queue from present");
-			dxgi_possible_swap_queue = queue;
+	if (dxgi_possible_swap_queue_count <
+	    _countof(dxgi_possible_swap_queues)) {
+		if (dxgi_presenting &&
+		    (queue->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)) {
+			if (try_append_queue_if_unique(queue)) {
+				hlog("Remembering D3D12 queue from present: queue=0x%" PRIX64,
+				     (uint64_t)(uintptr_t)queue);
+			}
 		} else if (dxgi_present_attempted &&
 			   (queue->GetDesc().Type ==
 			    D3D12_COMMAND_LIST_TYPE_DIRECT)) {
-			hlog("D3D12 queue from first direct after present");
-			dxgi_possible_swap_queue = queue;
+			if (try_append_queue_if_unique(queue)) {
+				hlog("Remembering D3D12 queue from first direct submit after present: queue=0x%" PRIX64,
+				     (uint64_t)(uintptr_t)queue);
+			}
+		} else {
+			hlog_verbose("Ignoring D3D12 queue=0x%" PRIX64,
+				     (uint64_t)(uintptr_t)queue);
 		}
 	}
 
-	unhook(&execute_command_lists);
-	execute_command_lists_t call =
-		(execute_command_lists_t)execute_command_lists.call_addr;
-	hr = call(queue, NumCommandLists, ppCommandLists);
-	rehook(&execute_command_lists);
-
-	return hr;
+	return RealExecuteCommandLists(queue, NumCommandLists, ppCommandLists);
 }
 
-static bool manually_get_d3d12_addrs(HMODULE d3d12_module,
-				     void **execute_command_lists_addr)
+static bool
+manually_get_d3d12_addrs(HMODULE d3d12_module,
+			 PFN_ExecuteCommandLists *execute_command_lists_addr)
 {
 	PFN_D3D12_CREATE_DEVICE create =
 		(PFN_D3D12_CREATE_DEVICE)GetProcAddress(d3d12_module,
@@ -413,7 +420,8 @@ static bool manually_get_d3d12_addrs(HMODULE d3d12_module,
 		success = SUCCEEDED(hr);
 		if (success) {
 			void **queue_vtable = *(void ***)queue;
-			*execute_command_lists_addr = queue_vtable[10];
+			*execute_command_lists_addr =
+				(PFN_ExecuteCommandLists)queue_vtable[10];
 
 			queue->Release();
 		} else {
@@ -432,10 +440,12 @@ bool hook_d3d12(void)
 {
 	HMODULE d3d12_module = get_system_module("d3d12.dll");
 	if (!d3d12_module) {
+		hlog_verbose(
+			"Failed to find d3d12.dll. Skipping hook attempt.");
 		return false;
 	}
 
-	void *execute_command_lists_addr = nullptr;
+	PFN_ExecuteCommandLists execute_command_lists_addr = nullptr;
 	if (!manually_get_d3d12_addrs(d3d12_module,
 				      &execute_command_lists_addr)) {
 		hlog("Failed to get D3D12 values");
@@ -447,13 +457,23 @@ bool hook_d3d12(void)
 		return true;
 	}
 
-	hook_init(&execute_command_lists, execute_command_lists_addr,
-		  (void *)hook_execute_command_lists,
-		  "ID3D12CommandQueue::ExecuteCommandLists");
-	rehook(&execute_command_lists);
+	DetourTransactionBegin();
 
-	hlog("Hooked D3D12");
-	return true;
+	RealExecuteCommandLists = execute_command_lists_addr;
+	DetourAttach(&(PVOID &)RealExecuteCommandLists,
+		     hook_execute_command_lists);
+
+	const LONG error = DetourTransactionCommit();
+	const bool success = error == NO_ERROR;
+	if (success) {
+		hlog("Hooked ID3D12CommandQueue::ExecuteCommandLists");
+		hlog("Hooked D3D12");
+	} else {
+		RealExecuteCommandLists = nullptr;
+		hlog("Failed to attach Detours hook: %ld", error);
+	}
+
+	return success;
 }
 
 #endif

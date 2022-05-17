@@ -4,7 +4,6 @@
 #include "graphics-hook.h"
 #include "../graphics-hook-ver.h"
 #include "../obfuscate.h"
-#include "../funchook.h"
 
 #define DEBUG_OUTPUT
 
@@ -68,12 +67,12 @@ bool init_pipe(void)
 	char new_name[64];
 	sprintf(new_name, "%s%lu", PIPE_NAME, GetCurrentProcessId());
 
-	if (!ipc_pipe_client_open(&pipe, new_name)) {
+	const bool success = ipc_pipe_client_open(&pipe, new_name);
+	if (!success) {
 		DbgOut("[OBS] Failed to open pipe\n");
-		return false;
 	}
 
-	return true;
+	return success;
 }
 
 static HANDLE init_event(const wchar_t *name, DWORD pid)
@@ -390,6 +389,24 @@ static inline bool attempt_hook(void)
 			}
 		}
 	}*/
+
+#if HOOK_VERBOSE_LOGGING
+	DbgOut("[OBS] Attempt hook: D3D8=");
+	DbgOut(d3d8_hooked ? "1" : "0");
+	DbgOut(", D3D9=");
+	DbgOut(d3d9_hooked ? "1" : "0");
+	DbgOut(", D3D12=");
+	DbgOut(d3d12_hooked ? "1" : "0");
+	DbgOut(", DXGI=");
+	DbgOut(dxgi_hooked ? "1" : "0");
+	DbgOut(", GL=");
+	DbgOut(gl_hooked ? "1" : "0");
+#if COMPILE_VULKAN_HOOK
+	DbgOut(", VK=");
+	DbgOut(vulkan_hooked ? "1" : "0");
+#endif
+	DbgOut("\n");
+#endif
 
 	return false;
 }

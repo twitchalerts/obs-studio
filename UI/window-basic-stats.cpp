@@ -6,12 +6,12 @@
 #include "obs-app.hpp"
 #include "qt-wrappers.hpp"
 
-#include <QDesktopWidget>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QScreen>
 
 #include <string>
 
@@ -204,7 +204,8 @@ OBSBasicStats::OBSBasicStats(QWidget *parent, bool closeable)
 
 		QRect windowGeometry = normalGeometry();
 		if (!WindowPositionValid(windowGeometry)) {
-			QRect rect = App()->desktop()->geometry();
+			QRect rect =
+				QGuiApplication::primaryScreen()->geometry();
 			setGeometry(QStyle::alignedRect(Qt::LeftToRight,
 							Qt::AlignCenter, size(),
 							rect));
@@ -286,10 +287,8 @@ void OBSBasicStats::Update()
 	struct obs_video_info ovi = {};
 	obs_get_video_info(&ovi);
 
-	OBSOutput strOutput = obs_frontend_get_streaming_output();
-	OBSOutput recOutput = obs_frontend_get_recording_output();
-	obs_output_release(strOutput);
-	obs_output_release(recOutput);
+	OBSOutputAutoRelease strOutput = obs_frontend_get_streaming_output();
+	OBSOutputAutoRelease recOutput = obs_frontend_get_recording_output();
 
 	if (!strOutput && !recOutput)
 		return;
@@ -486,10 +485,8 @@ void OBSBasicStats::Reset()
 	first_rendered = 0xFFFFFFFF;
 	first_lagged = 0xFFFFFFFF;
 
-	OBSOutput strOutput = obs_frontend_get_streaming_output();
-	OBSOutput recOutput = obs_frontend_get_recording_output();
-	obs_output_release(strOutput);
-	obs_output_release(recOutput);
+	OBSOutputAutoRelease strOutput = obs_frontend_get_streaming_output();
+	OBSOutputAutoRelease recOutput = obs_frontend_get_recording_output();
 
 	outputLabels[0].Reset(strOutput);
 	outputLabels[1].Reset(recOutput);

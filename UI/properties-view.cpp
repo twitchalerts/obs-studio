@@ -17,9 +17,12 @@
 #include <QPlainTextEdit>
 #include <QDialogButtonBox>
 #include <QMenu>
+#include <QMessageBox>
 #include <QStackedWidget>
 #include <QDir>
 #include <QGroupBox>
+#include <QObject>
+#include <QDesktopServices>
 #include "double-slider.hpp"
 #include "slider-ignorewheel.hpp"
 #include "spinbox-ignorewheel.hpp"
@@ -31,6 +34,9 @@
 
 #include <cstdlib>
 #include <initializer_list>
+#include <obs-data.h>
+#include <obs.h>
+#include <qtimer.h>
 #include <string>
 
 using namespace std;
@@ -83,8 +89,11 @@ Q_DECLARE_METATYPE(media_frames_per_second);
 
 void OBSPropertiesView::ReloadProperties()
 {
-	if (obj) {
-		properties.reset(reloadCallback(obj));
+	if (weakObj || rawObj) {
+		OBSObject strongObj = GetObject();
+		void *obj = strongObj ? strongObj.Get() : rawObj;
+		if (obj)
+			properties.reset(reloadCallback(obj));
 	} else {
 		properties.reset(reloadCallback((void *)type.c_str()));
 		obs_properties_apply_settings(properties.get(), settings);
@@ -168,20 +177,42 @@ void OBSPropertiesView::GetScrollPos(int &h, int &v)
 		v = scroll->value();
 }
 
-OBSPropertiesView::OBSPropertiesView(OBSData settings_, void *obj_,
+OBSPropertiesView::OBSPropertiesView(OBSData settings_, obs_object_t *obj,
 				     PropertiesReloadCallback reloadCallback,
 				     PropertiesUpdateCallback callback_,
+				     PropertiesVisualUpdateCb visUpdateCb_,
 				     int minSize_)
 	: VScrollArea(nullptr),
 	  properties(nullptr, obs_properties_destroy),
 	  settings(settings_),
-	  obj(obj_),
+	  weakObj(obs_object_get_weak_object(obj)),
 	  reloadCallback(reloadCallback),
 	  callback(callback_),
+	  visUpdateCb(visUpdateCb_),
 	  minSize(minSize_)
 {
 	setFrameShape(QFrame::NoFrame);
-	ReloadProperties();
+	QMetaObject::invokeMethod(this, "ReloadProperties",
+				  Qt::QueuedConnection);
+}
+
+OBSPropertiesView::OBSPropertiesView(OBSData settings_, void *obj,
+				     PropertiesReloadCallback reloadCallback,
+				     PropertiesUpdateCallback callback_,
+				     PropertiesVisualUpdateCb visUpdateCb_,
+				     int minSize_)
+	: VScrollArea(nullptr),
+	  properties(nullptr, obs_properties_destroy),
+	  settings(settings_),
+	  rawObj(obj),
+	  reloadCallback(reloadCallback),
+	  callback(callback_),
+	  visUpdateCb(visUpdateCb_),
+	  minSize(minSize_)
+{
+	setFrameShape(QFrame::NoFrame);
+	QMetaObject::invokeMethod(this, "ReloadProperties",
+				  Qt::QueuedConnection);
 }
 
 OBSPropertiesView::OBSPropertiesView(OBSData settings_, const char *type_,
@@ -195,7 +226,8 @@ OBSPropertiesView::OBSPropertiesView(OBSData settings_, const char *type_,
 	  minSize(minSize_)
 {
 	setFrameShape(QFrame::NoFrame);
-	ReloadProperties();
+	QMetaObject::invokeMethod(this, "ReloadProperties",
+				  Qt::QueuedConnection);
 }
 
 void OBSPropertiesView::resizeEvent(QResizeEvent *event)
@@ -388,6 +420,14 @@ void OBSPropertiesView::AddFloat(obs_property_t *prop, QFormLayout *layout,
 	double stepVal = obs_property_float_step(prop);
 	const char *suffix = obs_property_float_suffix(prop);
 
+	if (stepVal < 1.0) {
+		constexpr int sane_limit = 8;
+		const int decimals =
+			std::min<int>(log10(1.0 / stepVal) + 0.99, sane_limit);
+		if (decimals > spin->decimals())
+			spin->setDecimals(decimals);
+	}
+
 	spin->setMinimum(minVal);
 	spin->setMaximum(maxVal);
 	spin->setSingleStep(stepVal);
@@ -572,7 +612,7 @@ void OBSPropertiesView::AddEditableList(obs_property_t *prop,
 					QFormLayout *layout, QLabel *&label)
 {
 	const char *name = obs_property_name(prop);
-	obs_data_array_t *array = obs_data_get_array(settings, name);
+	OBSDataArrayAutoRelease array = obs_data_get_array(settings, name);
 	QListWidget *list = new QListWidget();
 	size_t count = obs_data_array_count(array);
 
@@ -584,12 +624,11 @@ void OBSPropertiesView::AddEditableList(obs_property_t *prop,
 	list->setToolTip(QT_UTF8(obs_property_long_description(prop)));
 
 	for (size_t i = 0; i < count; i++) {
-		obs_data_t *item = obs_data_array_item(array, i);
+		OBSDataAutoRelease item = obs_data_array_item(array, i);
 		list->addItem(QT_UTF8(obs_data_get_string(item, "value")));
 		QListWidgetItem *const list_item = list->item((int)i);
 		list_item->setSelected(obs_data_get_bool(item, "selected"));
 		list_item->setHidden(obs_data_get_bool(item, "hidden"));
-		obs_data_release(item);
 	}
 
 	WidgetInfo *info = new WidgetInfo(this, prop, list);
@@ -621,8 +660,6 @@ void OBSPropertiesView::AddEditableList(obs_property_t *prop,
 
 	label = new QLabel(QT_UTF8(obs_property_description(prop)));
 	layout->addRow(label, subLayout);
-
-	obs_data_array_release(array);
 }
 
 QWidget *OBSPropertiesView::AddButton(obs_property_t *prop)
@@ -737,7 +774,7 @@ void OBSPropertiesView::AddFont(obs_property_t *prop, QFormLayout *layout,
 				QLabel *&label)
 {
 	const char *name = obs_property_name(prop);
-	obs_data_t *font_obj = obs_data_get_obj(settings, name);
+	OBSDataAutoRelease font_obj = obs_data_get_obj(settings, name);
 	const char *face = obs_data_get_string(font_obj, "face");
 	const char *style = obs_data_get_string(font_obj, "style");
 	QPushButton *button = new QPushButton;
@@ -774,8 +811,6 @@ void OBSPropertiesView::AddFont(obs_property_t *prop, QFormLayout *layout,
 
 	label = new QLabel(QT_UTF8(obs_property_description(prop)));
 	layout->addRow(label, subLayout);
-
-	obs_data_release(font_obj);
 }
 
 namespace std {
@@ -1440,26 +1475,31 @@ void OBSPropertiesView::AddProperty(obs_property_t *property,
 		AddColorAlpha(property, layout, label);
 	}
 
-	if (widget && !obs_property_enabled(property))
-		widget->setEnabled(false);
+	if (!widget && !label)
+		return;
 
 	if (!label && type != OBS_PROPERTY_BOOL &&
 	    type != OBS_PROPERTY_BUTTON && type != OBS_PROPERTY_GROUP)
 		label = new QLabel(QT_UTF8(obs_property_description(property)));
 
-	if (warning && label) //TODO: select color based on background color
-		label->setStyleSheet("QLabel { color: red; }");
+	if (label) {
+		if (warning) //TODO: select color based on background color
+			label->setStyleSheet("QLabel { color: red; }");
 
-	if (label && minSize) {
-		label->setMinimumWidth(minSize);
-		label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+		if (minSize) {
+			label->setMinimumWidth(minSize);
+			label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+		}
+
+		if (!obs_property_enabled(property))
+			label->setEnabled(false);
 	}
-
-	if (label && !obs_property_enabled(property))
-		label->setEnabled(false);
 
 	if (!widget)
 		return;
+
+	if (!obs_property_enabled(property))
+		widget->setEnabled(false);
 
 	if (obs_property_long_description(property)) {
 		bool lightTheme = palette().text().color().redF() < 0.5;
@@ -1775,7 +1815,7 @@ bool WidgetInfo::ColorAlphaChanged(const char *setting)
 
 bool WidgetInfo::FontChanged(const char *setting)
 {
-	obs_data_t *font_obj = obs_data_get_obj(view->settings, setting);
+	OBSDataAutoRelease font_obj = obs_data_get_obj(view->settings, setting);
 	bool success;
 	uint32_t flags;
 	QFont font;
@@ -1794,7 +1834,6 @@ bool WidgetInfo::FontChanged(const char *setting)
 		MakeQFont(font_obj, font);
 		font = QFontDialog::getFont(&success, font, view, "Pick a Font",
 					    options);
-		obs_data_release(font_obj);
 	}
 
 	if (!success)
@@ -1818,7 +1857,6 @@ bool WidgetInfo::FontChanged(const char *setting)
 	label->setText(QString("%1 %2").arg(font.family(), font.styleName()));
 
 	obs_data_set_obj(view->settings, setting, font_obj);
-	obs_data_release(font_obj);
 	return true;
 }
 
@@ -1847,30 +1885,56 @@ void WidgetInfo::EditableListChanged()
 {
 	const char *setting = obs_property_name(property);
 	QListWidget *list = reinterpret_cast<QListWidget *>(widget);
-	obs_data_array *array = obs_data_array_create();
+	OBSDataArrayAutoRelease array = obs_data_array_create();
 
 	for (int i = 0; i < list->count(); i++) {
 		QListWidgetItem *item = list->item(i);
-		obs_data_t *arrayItem = obs_data_create();
+		OBSDataAutoRelease arrayItem = obs_data_create();
 		obs_data_set_string(arrayItem, "value",
 				    QT_TO_UTF8(item->text()));
 		obs_data_set_bool(arrayItem, "selected", item->isSelected());
 		obs_data_set_bool(arrayItem, "hidden", item->isHidden());
 		obs_data_array_push_back(array, arrayItem);
-		obs_data_release(arrayItem);
 	}
 
 	obs_data_set_array(view->settings, setting, array);
-	obs_data_array_release(array);
 
 	ControlChanged();
 }
 
 void WidgetInfo::ButtonClicked()
 {
-	if (obs_property_button_clicked(property, view->obj)) {
-		QMetaObject::invokeMethod(view, "RefreshProperties",
-					  Qt::QueuedConnection);
+	obs_button_type type = obs_property_button_type(property);
+	const char *savedUrl = obs_property_button_url(property);
+
+	if (type == OBS_BUTTON_URL && strcmp(savedUrl, "") != 0) {
+		QUrl url(savedUrl, QUrl::StrictMode);
+		if (url.isValid() && (url.scheme().compare("http") == 0 ||
+				      url.scheme().compare("https") == 0)) {
+			QString msg(
+				QTStr("Basic.PropertiesView.UrlButton.Text"));
+			msg += "\n\n";
+			msg += QString(QTStr("Basic.PropertiesView.UrlButton.Text.Url"))
+				       .arg(savedUrl);
+
+			QMessageBox::StandardButton button = OBSMessageBox::question(
+				view->window(),
+				QTStr("Basic.PropertiesView.UrlButton.OpenUrl"),
+				msg, QMessageBox::Yes | QMessageBox::No,
+				QMessageBox::No);
+
+			if (button == QMessageBox::Yes)
+				QDesktopServices::openUrl(url);
+		}
+		return;
+	}
+	if (view->rawObj || view->weakObj) {
+		OBSObject strongObj = view->GetObject();
+		void *obj = strongObj ? strongObj.Get() : view->rawObj;
+		if (obs_property_button_clicked(property, obj)) {
+			QMetaObject::invokeMethod(view, "RefreshProperties",
+						  Qt::QueuedConnection);
+		}
 	}
 }
 
@@ -1884,6 +1948,12 @@ void WidgetInfo::ControlChanged()
 {
 	const char *setting = obs_property_name(property);
 	obs_property_type type = obs_property_get_type(property);
+
+	if (!recently_updated) {
+		old_settings_cache = obs_data_create();
+		obs_data_apply(old_settings_cache, view->settings);
+		obs_data_release(old_settings_cache);
+	}
 
 	switch (type) {
 	case OBS_PROPERTY_INVALID:
@@ -1933,8 +2003,39 @@ void WidgetInfo::ControlChanged()
 		break;
 	}
 
-	if (view->callback && !view->deferUpdate)
-		view->callback(view->obj, view->settings);
+	if (!recently_updated) {
+		recently_updated = true;
+		update_timer = new QTimer;
+		connect(update_timer, &QTimer::timeout,
+			[this, &ru = recently_updated]() {
+				OBSObject strongObj = view->GetObject();
+				void *obj = strongObj ? strongObj.Get()
+						      : view->rawObj;
+				if (obj && view->callback &&
+				    !view->deferUpdate) {
+					view->callback(obj, old_settings_cache,
+						       view->settings);
+				}
+
+				ru = false;
+			});
+		connect(update_timer, &QTimer::timeout, &QTimer::deleteLater);
+		update_timer->setSingleShot(true);
+	}
+
+	if (update_timer) {
+		update_timer->stop();
+		update_timer->start(500);
+	} else {
+		blog(LOG_DEBUG, "No update timer or no callback!");
+	}
+
+	if (view->visUpdateCb && !view->deferUpdate) {
+		OBSObject strongObj = view->GetObject();
+		void *obj = strongObj ? strongObj.Get() : view->rawObj;
+		if (obj)
+			view->visUpdateCb(obj, view->settings);
+	}
 
 	view->SignalChanged();
 

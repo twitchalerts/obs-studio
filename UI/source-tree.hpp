@@ -32,7 +32,11 @@ class SourceTreeItem : public QWidget {
 	friend class SourceTreeModel;
 
 	void mouseDoubleClickEvent(QMouseEvent *event) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+	void enterEvent(QEnterEvent *event) override;
+#else
 	void enterEvent(QEvent *event) override;
+#endif
 	void leaveEvent(QEvent *event) override;
 
 	virtual bool eventFilter(QObject *object, QEvent *event) override;
@@ -58,12 +62,15 @@ public:
 private:
 	QSpacerItem *spacer = nullptr;
 	QCheckBox *expand = nullptr;
+	QLabel *iconLabel = nullptr;
 	VisibilityCheckBox *vis = nullptr;
 	LockedCheckBox *lock = nullptr;
 	QHBoxLayout *boxLayout = nullptr;
 	QLabel *label = nullptr;
 
 	QLineEdit *editor = nullptr;
+
+	std::string newName;
 
 	SourceTree *tree;
 	OBSSceneItem sceneitem;
@@ -78,6 +85,8 @@ private:
 	OBSSignal removeSignal;
 
 	virtual void paintEvent(QPaintEvent *event) override;
+
+	void ExitEditModeInternal(bool save);
 
 private slots:
 	void Clear();
@@ -148,6 +157,8 @@ class SourceTree : public QListView {
 	QStaticText textNoSources;
 	QSvgRenderer iconNoSources;
 
+	OBSData undoSceneData;
+
 	bool iconsVisible = true;
 
 	void UpdateNoSourcesMessage();
@@ -193,7 +204,8 @@ public slots:
 	void GroupSelectedItems();
 	void UngroupSelectedGroups();
 	void AddGroup();
-	void Edit(int idx);
+	bool Edit(int idx);
+	void NewGroupEdit(int idx);
 
 protected:
 	virtual void mouseDoubleClickEvent(QMouseEvent *event) override;

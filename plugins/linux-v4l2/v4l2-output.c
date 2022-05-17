@@ -1,11 +1,13 @@
+#define _GNU_SOURCE
+
 #include <obs-module.h>
+#include <util/dstr.h>
 #include <util/platform.h>
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <unistd.h>
-
-#define MAX_DEVICES 64
+#include <dirent.h>
 
 struct virtualcam_data {
 	obs_output_t *output;
@@ -24,6 +26,35 @@ static void virtualcam_destroy(void *data)
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
 	close(vcam->device);
 	bfree(data);
+}
+
+static bool is_flatpak_sandbox(void)
+{
+	static bool flatpak_info_exists = false;
+	static bool initialized = false;
+
+	if (!initialized) {
+		flatpak_info_exists = access("/.flatpak-info", F_OK) == 0;
+		initialized = true;
+	}
+
+	return flatpak_info_exists;
+}
+
+static int run_command(const char *command)
+{
+	struct dstr str;
+	int result;
+
+	dstr_init_copy(&str, "PATH=\"$PATH:/sbin\" ");
+
+	if (is_flatpak_sandbox())
+		dstr_cat(&str, "flatpak-spawn --host ");
+
+	dstr_cat(&str, command);
+	result = system(str.array);
+	dstr_free(&str);
+	return result;
 }
 
 static bool loopback_module_loaded()
@@ -56,8 +87,7 @@ bool loopback_module_available()
 		return true;
 	}
 
-	if (system("PATH=\"$PATH:/sbin\" modinfo v4l2loopback >/dev/null 2>&1") ==
-	    0) {
+	if (run_command("modinfo v4l2loopback >/dev/null 2>&1") == 0) {
 		return true;
 	}
 
@@ -66,8 +96,8 @@ bool loopback_module_available()
 
 static int loopback_module_load()
 {
-	return system(
-		"PATH=\"$PATH:/sbin\" pkexec modprobe v4l2loopback exclusive_caps=1 card_label='OBS Virtual Camera' && sleep 0.5");
+	return run_command(
+		"pkexec modprobe v4l2loopback exclusive_caps=1 card_label='OBS Virtual Camera' && sleep 0.5");
 }
 
 static void *virtualcam_create(obs_data_t *settings, obs_output_t *output)
@@ -80,7 +110,7 @@ static void *virtualcam_create(obs_data_t *settings, obs_output_t *output)
 	return vcam;
 }
 
-static bool try_connect(void *data, int device)
+static bool try_connect(void *data, const char *device)
 {
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
 	struct v4l2_format format;
@@ -92,12 +122,7 @@ static bool try_connect(void *data, int device)
 
 	vcam->frame_size = width * height * 2;
 
-	char new_device[16];
-	if (device < 0 || device >= MAX_DEVICES)
-		return false;
-	snprintf(new_device, 16, "/dev/video%d", device);
-
-	vcam->device = open(new_device, O_RDWR);
+	vcam->device = open(device, O_RDWR);
 
 	if (vcam->device < 0)
 		return false;
@@ -143,24 +168,53 @@ static bool try_connect(void *data, int device)
 	return true;
 }
 
+static int scanfilter(const struct dirent *entry)
+{
+	return !astrcmp_n(entry->d_name, "video", 5);
+}
+
 static bool virtualcam_start(void *data)
 {
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
+	struct dirent **list;
+	bool success = false;
+	int n;
 
 	if (!loopback_module_loaded()) {
 		if (loopback_module_load() != 0)
 			return false;
 	}
 
-	for (int i = 0; i < MAX_DEVICES; i++) {
-		if (!try_connect(vcam, i))
-			continue;
-		else
-			return true;
+	n = scandir("/dev", &list, scanfilter,
+#if defined(__linux__)
+		    versionsort
+#else
+		    alphasort
+#endif
+	);
+
+	if (n == -1)
+		return false;
+
+	for (int i = 0; i < n; i++) {
+		char device[32];
+
+		snprintf(device, 32, "/dev/%s", list[i]->d_name);
+
+		if (try_connect(vcam, device)) {
+			success = true;
+			break;
+		}
 	}
 
-	blog(LOG_WARNING, "Failed to start virtual camera");
-	return false;
+	while (n--)
+		free(list[n]);
+	free(list);
+
+	if (!success)
+		blog(LOG_WARNING, "Failed to start virtual camera");
+
+	return success;
 }
 
 static void virtualcam_stop(void *data, uint64_t ts)

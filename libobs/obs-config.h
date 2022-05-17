@@ -27,21 +27,21 @@
 /*
  * Increment if major breaking API changes
  */
-#define LIBOBS_API_MAJOR_VER 26
+#define LIBOBS_API_MAJOR_VER 27
 
 /*
  * Increment if backward-compatible additions
  *
  * Reset to zero each major version
  */
-#define LIBOBS_API_MINOR_VER 1
+#define LIBOBS_API_MINOR_VER 2
 
 /*
  * Increment if backward-compatible bug fix
  *
  * Reset to zero each major or minor version
  */
-#define LIBOBS_API_PATCH_VER 2
+#define LIBOBS_API_PATCH_VER 4
 
 #define MAKE_SEMANTIC_VERSION(major, minor, patch) \
 	((major << 24) | (minor << 16) | patch)
@@ -63,6 +63,11 @@
 #define OBS_RELEASE_CANDIDATE_PATCH 0
 #define OBS_RELEASE_CANDIDATE_VER 0
 #define OBS_RELEASE_CANDIDATE 0
+#define OBS_BETA_MAJOR 0
+#define OBS_BETA_MINOR 0
+#define OBS_BETA_PATCH 0
+#define OBS_BETA_VER 0
+#define OBS_BETA 0
 #endif
 
 #define OBS_INSTALL_DATA_PATH OBS_INSTALL_PREFIX OBS_DATA_PATH

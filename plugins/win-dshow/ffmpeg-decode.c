@@ -61,6 +61,7 @@ static void init_hw_decoder(struct ffmpeg_decode *d)
 	}
 
 	if (hw_ctx) {
+		d->hw_device_ctx = hw_ctx;
 		d->decoder->hw_device_ctx = av_buffer_ref(hw_ctx);
 		d->hw = true;
 	}
@@ -107,7 +108,7 @@ int ffmpeg_decode_init(struct ffmpeg_decode *decode, enum AVCodecID id,
 void ffmpeg_decode_free(struct ffmpeg_decode *decode)
 {
 	if (decode->hw_frame)
-		av_free(decode->hw_frame);
+		av_frame_free(&decode->hw_frame);
 
 	if (decode->decoder) {
 		avcodec_close(decode->decoder);
@@ -115,7 +116,10 @@ void ffmpeg_decode_free(struct ffmpeg_decode *decode)
 	}
 
 	if (decode->frame)
-		av_free(decode->frame);
+		av_frame_free(&decode->frame);
+
+	if (decode->hw_device_ctx)
+		av_buffer_unref(&decode->hw_device_ctx);
 
 	if (decode->packet_buffer)
 		bfree(decode->packet_buffer);
@@ -377,7 +381,7 @@ bool ffmpeg_decode_video(struct ffmpeg_decode *decode, uint8_t *data,
 
 	frame->range = range;
 
-	*ts = decode->frame->pkt_pts;
+	*ts = decode->frame->pts;
 
 	frame->width = decode->frame->width;
 	frame->height = decode->frame->height;
