@@ -30,6 +30,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/mastering_display_metadata.h>
 
 #define ANSI_COLOR_RED "\x1b[0;91m"
 #define ANSI_COLOR_MAGENTA "\x1b[0;95m"
@@ -93,6 +94,7 @@ struct main_params {
 	int color_trc;
 	int colorspace;
 	int color_range;
+	int max_luminance;
 	char *acodec;
 	char *muxer_settings;
 };
@@ -119,6 +121,7 @@ struct ffmpeg_mux {
 	AVFormatContext *output;
 	AVStream *video_stream;
 	AVCodecContext *video_ctx;
+	AVPacket *packet;
 	struct audio_info *audio_infos;
 	struct main_params params;
 	struct audio_params *audio;
@@ -149,6 +152,7 @@ static void free_avformat(struct ffmpeg_mux *ffm)
 	if (ffm->audio_infos) {
 		for (int i = 0; i < ffm->num_audio_streams; ++i)
 			avcodec_free_context(&ffm->audio_infos[i].ctx);
+
 		free(ffm->audio_infos);
 	}
 
@@ -180,6 +184,8 @@ static void ffmpeg_mux_free(struct ffmpeg_mux *ffm)
 	}
 
 	dstr_free(&ffm->params.printable_file);
+
+	av_packet_free(&ffm->packet);
 
 	memset(ffm, 0, sizeof(*ffm));
 }
@@ -232,7 +238,7 @@ static bool get_audio_params(struct audio_params *audio, int *argc,
 static void ffmpeg_log_callback(void *param, int level, const char *format,
 				va_list args)
 {
-#ifdef DEBUG_FFMPEG
+#ifdef ENABLE_FFMPEG_MUX_DEBUG
 	char out_buffer[4096];
 	struct dstr out = {0};
 
@@ -315,6 +321,9 @@ static bool init_params(int *argc, char ***argv, struct main_params *params,
 			return false;
 		if (!get_opt_int(argc, argv, &params->color_range,
 				 "video color range"))
+			return false;
+		if (!get_opt_int(argc, argv, &params->max_luminance,
+				 "video max luminance"))
 			return false;
 		if (!get_opt_int(argc, argv, &params->fps_num, "video fps num"))
 			return false;
@@ -411,6 +420,37 @@ static void create_video_stream(struct ffmpeg_mux *ffm)
 #endif
 	ffm->video_stream->avg_frame_rate = av_inv_q(context->time_base);
 
+	const int max_luminance = ffm->params.max_luminance;
+	if (max_luminance > 0) {
+		size_t content_size;
+		AVContentLightMetadata *const content =
+			av_content_light_metadata_alloc(&content_size);
+		content->MaxCLL = max_luminance;
+		content->MaxFALL = max_luminance;
+		av_stream_add_side_data(ffm->video_stream,
+					AV_PKT_DATA_CONTENT_LIGHT_LEVEL,
+					(uint8_t *)content, content_size);
+
+		AVMasteringDisplayMetadata *const mastering =
+			av_mastering_display_metadata_alloc();
+		mastering->display_primaries[0][0] = av_make_q(17, 25);
+		mastering->display_primaries[0][1] = av_make_q(8, 25);
+		mastering->display_primaries[1][0] = av_make_q(53, 200);
+		mastering->display_primaries[1][1] = av_make_q(69, 100);
+		mastering->display_primaries[2][0] = av_make_q(3, 20);
+		mastering->display_primaries[2][1] = av_make_q(3, 50);
+		mastering->white_point[0] = av_make_q(3127, 10000);
+		mastering->white_point[1] = av_make_q(329, 1000);
+		mastering->min_luminance = av_make_q(0, 1);
+		mastering->max_luminance = av_make_q(max_luminance, 1);
+		mastering->has_primaries = 1;
+		mastering->has_luminance = 1;
+		av_stream_add_side_data(ffm->video_stream,
+					AV_PKT_DATA_MASTERING_DISPLAY_METADATA,
+					(uint8_t *)mastering,
+					sizeof(*mastering));
+	}
+
 	if (ffm->output->oformat->flags & AVFMT_GLOBALHEADER)
 		context->flags |= CODEC_FLAG_GLOBAL_H;
 
@@ -455,14 +495,18 @@ static void create_audio_stream(struct ffmpeg_mux *ffm, int idx)
 	context->time_base = stream->time_base;
 	context->extradata = extradata;
 	context->extradata_size = ffm->audio_header[idx].size;
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(59, 24, 100)
 	context->channel_layout =
 		av_get_default_channel_layout(context->channels);
-	//avutil default channel layout for 4 channels is 4.0 ; fix for quad
-	if (context->channels == 4)
-		context->channel_layout = av_get_channel_layout("quad");
 	//avutil default channel layout for 5 channels is 5.0 ; fix for 4.1
 	if (context->channels == 5)
 		context->channel_layout = av_get_channel_layout("4.1");
+#else
+	av_channel_layout_default(&context->ch_layout, context->channels);
+	//avutil default channel layout for 5 channels is 5.0 ; fix for 4.1
+	if (context->channels == 5)
+		context->ch_layout = (AVChannelLayout)AV_CHANNEL_LAYOUT_4POINT1;
+#endif
 	if (ffm->output->oformat->flags & AVFMT_GLOBALHEADER)
 		context->flags |= CODEC_FLAG_GLOBAL_H;
 
@@ -666,9 +710,12 @@ static int ffmpeg_mux_init_context(struct ffmpeg_mux *ffm)
 			ffm->params.printable_file.array);
 		return FFM_ERROR;
 	}
+
+#ifdef ENABLE_FFMPEG_MUX_DEBUG
 	printf("info: Output format name and long_name: %s, %s\n",
 	       output_format->name ? output_format->name : "unknown",
 	       output_format->long_name ? output_format->long_name : "unknown");
+#endif
 
 	ret = avformat_alloc_output_context2(&ffm->output, output_format, NULL,
 					     ffm->params.file);
@@ -716,6 +763,8 @@ static int ffmpeg_mux_init_internal(struct ffmpeg_mux *ffm, int argc,
 
 	if (!ffmpeg_mux_get_extra_data(ffm))
 		return FFM_ERROR;
+
+	ffm->packet = av_packet_alloc();
 
 	/* ffmpeg does not have a way of telling what's supported
 	 * for a given output format, so we try each possibility */
@@ -786,7 +835,6 @@ static inline bool ffmpeg_mux_packet(struct ffmpeg_mux *ffm, uint8_t *buf,
 				     struct ffm_packet_info *info)
 {
 	int idx = get_index(ffm, info);
-	AVPacket packet = {0};
 
 	/* The muxer might not support video/audio, or multiple audio tracks */
 	if (idx == -1) {
@@ -796,18 +844,16 @@ static inline bool ffmpeg_mux_packet(struct ffmpeg_mux *ffm, uint8_t *buf,
 	const AVRational codec_time_base =
 		get_codec_context(ffm, info)->time_base;
 
-	av_init_packet(&packet);
-
-	packet.data = buf;
-	packet.size = (int)info->size;
-	packet.stream_index = idx;
-	packet.pts = rescale_ts(ffm, codec_time_base, info->pts, idx);
-	packet.dts = rescale_ts(ffm, codec_time_base, info->dts, idx);
+	ffm->packet->data = buf;
+	ffm->packet->size = (int)info->size;
+	ffm->packet->stream_index = idx;
+	ffm->packet->pts = rescale_ts(ffm, codec_time_base, info->pts, idx);
+	ffm->packet->dts = rescale_ts(ffm, codec_time_base, info->dts, idx);
 
 	if (info->keyframe)
-		packet.flags = AV_PKT_FLAG_KEY;
+		ffm->packet->flags = AV_PKT_FLAG_KEY;
 
-	int ret = av_interleaved_write_frame(ffm->output, &packet);
+	int ret = av_interleaved_write_frame(ffm->output, ffm->packet);
 
 	if (ret < 0) {
 		fprintf(stderr, "av_interleaved_write_frame failed: %d: %s\n",
@@ -822,6 +868,37 @@ static inline bool ffmpeg_mux_packet(struct ffmpeg_mux *ffm, uint8_t *buf,
 	return ret >= 0;
 }
 
+static inline bool read_change_file(struct ffmpeg_mux *ffm, uint32_t size,
+				    struct resize_buf *filename, int argc,
+				    char **argv)
+{
+	resize_buf_resize(filename, size + 1);
+	if (safe_read(filename->buf, size) != size) {
+		return false;
+	}
+	filename->buf[size] = 0;
+
+#ifdef ENABLE_FFMPEG_MUX_DEBUG
+	fprintf(stderr, "info: New output file name: %s\n", filename->buf);
+#endif
+
+	int ret;
+	char *argv1_backup = argv[1];
+	argv[1] = (char *)filename->buf;
+
+	ffmpeg_mux_free(ffm);
+
+	ret = ffmpeg_mux_init(ffm, argc, argv);
+	if (ret != FFM_SUCCESS) {
+		fprintf(stderr, "Couldn't initialize muxer\n");
+		return false;
+	}
+
+	argv[1] = argv1_backup;
+
+	return true;
+}
+
 /* ------------------------------------------------------------------------- */
 
 #ifdef _WIN32
@@ -833,6 +910,7 @@ int main(int argc, char *argv[])
 	struct ffm_packet_info info = {0};
 	struct ffmpeg_mux ffm = {0};
 	struct resize_buf rb = {0};
+	struct resize_buf rb_filename = {0};
 	bool fail = false;
 	int ret;
 
@@ -865,6 +943,12 @@ int main(int argc, char *argv[])
 	}
 
 	while (!fail && safe_read(&info, sizeof(info)) == sizeof(info)) {
+		if (info.type == FFM_PACKET_CHANGE_FILE) {
+			fail = !read_change_file(&ffm, info.size, &rb_filename,
+						 argc, argv);
+			continue;
+		}
+
 		resize_buf_resize(&rb, info.size);
 
 		if (safe_read(rb.buf, info.size) == info.size) {
@@ -876,6 +960,7 @@ int main(int argc, char *argv[])
 
 	ffmpeg_mux_free(&ffm);
 	resize_buf_free(&rb);
+	resize_buf_free(&rb_filename);
 
 #ifdef _WIN32
 	for (int i = 0; i < argc; i++)

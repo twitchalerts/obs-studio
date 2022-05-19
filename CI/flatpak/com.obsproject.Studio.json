@@ -347,7 +347,14 @@
         "-Dbluez5-codec-aptx=disabled",
         "-Dlibcamera=disabled",
         "-Dudevrulesdir=/app/lib/udev/rules.d/",
-        "-Dsession-managers=[]"
+        "-Dsession-managers=[]",
+        "-Dtests=disabled",
+        "-Dexamples=disabled",
+        "-Dpw-cat=disabled"
+      ],
+      "cleanup": [
+        "/include",
+        "/bin"
       ],
       "sources": [
         {
@@ -416,13 +423,15 @@
       "config-opts": [
         "-DCMAKE_BUILD_TYPE=Release",
         "-DENABLE_WAYLAND=ON",
-        "-DBUILD_BROWSER=ON",
+        "-DENABLE_BROWSER=ON",
         "-DCEF_ROOT_DIR=/app/cef",
-        "-DUNIX_STRUCTURE=ON",
         "-DUSE_XDG=ON",
-        "-DDISABLE_ALSA=ON",
+        "-DENABLE_ALSA=OFF",
         "-DENABLE_PULSEAUDIO=ON",
-        "-DWITH_RTMPS=ON"
+        "-DENABLE_JACK=ON",
+        "-DENABLE_RTMPS=ON",
+        "-DENABLE_VLC=OFF",
+        "-DENABLE_AJA=ON"
       ],
       "secret-opts": [
         "-DRESTREAM_CLIENTID=$RESTREAM_CLIENTID",

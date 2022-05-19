@@ -26,7 +26,7 @@
 #include "obs-scripting-config.h"
 #include <util/platform.h>
 
-#if UI_ENABLED
+#if defined(ENABLE_UI)
 #include "obs-frontend-api.h"
 #endif
 
@@ -34,6 +34,7 @@
 
 #define DEPRECATED_START
 #define DEPRECATED_END
+#define OBS_DEPRECATED
 #define OBS_EXTERNAL_DEPRECATED
 #define EXPORT
 
@@ -104,6 +105,6 @@ static inline void wrap_blog(int log_level, const char *message)
 %include "util/base.h"
 %include "util/platform.h"
 
-#if UI_ENABLED
+#if defined(ENABLE_UI)
 %include "obs-frontend-api.h"
 #endif

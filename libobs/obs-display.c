@@ -33,8 +33,12 @@ bool obs_display_init(struct obs_display *display,
 			return false;
 		}
 
-		display->cx = graphics_data->cx;
-		display->cy = graphics_data->cy;
+		const uint32_t cx = graphics_data->cx;
+		const uint32_t cy = graphics_data->cy;
+		display->cx = cx;
+		display->cy = cy;
+		display->next_cx = cx;
+		display->next_cy = cy;
 	}
 
 	if (pthread_mutex_init(&display->draw_callbacks_mutex, NULL) != 0) {
@@ -114,9 +118,20 @@ void obs_display_resize(obs_display_t *display, uint32_t cx, uint32_t cy)
 
 	pthread_mutex_lock(&display->draw_info_mutex);
 
-	display->cx = cx;
-	display->cy = cy;
-	display->size_changed = true;
+	display->next_cx = cx;
+	display->next_cy = cy;
+
+	pthread_mutex_unlock(&display->draw_info_mutex);
+}
+
+void obs_display_update_color_space(obs_display_t *display)
+{
+	if (!display)
+		return;
+
+	pthread_mutex_lock(&display->draw_info_mutex);
+
+	display->update_color_space = true;
 
 	pthread_mutex_unlock(&display->draw_info_mutex);
 }
@@ -153,18 +168,26 @@ void obs_display_remove_draw_callback(obs_display_t *display,
 
 static inline void render_display_begin(struct obs_display *display,
 					uint32_t cx, uint32_t cy,
-					bool size_changed)
+					bool update_color_space)
 {
 	struct vec4 clear_color;
 
 	gs_load_swapchain(display->swap);
 
-	if (size_changed)
+	if ((display->cx != cx) || (display->cy != cy)) {
 		gs_resize(cx, cy);
+		display->cx = cx;
+		display->cy = cy;
+	} else if (update_color_space) {
+		gs_update_color_space();
+	}
 
 	gs_begin_scene();
 
-	vec4_from_rgba(&clear_color, display->background_color);
+	if (gs_get_color_space() == GS_CS_SRGB)
+		vec4_from_rgba(&clear_color, display->background_color);
+	else
+		vec4_from_rgba_srgb(&clear_color, display->background_color);
 	clear_color.w = 1.0f;
 
 	gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH | GS_CLEAR_STENCIL,
@@ -186,7 +209,7 @@ static inline void render_display_end()
 void render_display(struct obs_display *display)
 {
 	uint32_t cx, cy;
-	bool size_changed;
+	bool update_color_space;
 
 	if (!display || !display->enabled)
 		return;
@@ -197,18 +220,17 @@ void render_display(struct obs_display *display)
 
 	pthread_mutex_lock(&display->draw_info_mutex);
 
-	cx = display->cx;
-	cy = display->cy;
-	size_changed = display->size_changed;
+	cx = display->next_cx;
+	cy = display->next_cy;
+	update_color_space = display->update_color_space;
 
-	if (size_changed)
-		display->size_changed = false;
+	display->update_color_space = false;
 
 	pthread_mutex_unlock(&display->draw_info_mutex);
 
 	/* -------------------------------------------- */
 
-	render_display_begin(display, cx, cy, size_changed);
+	render_display_begin(display, cx, cy, update_color_space);
 
 	pthread_mutex_lock(&display->draw_callbacks_mutex);
 

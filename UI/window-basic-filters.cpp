@@ -36,6 +36,11 @@
 #include <QMenu>
 #include <QVariant>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN 1
+#include <Windows.h>
+#endif
+
 using namespace std;
 
 Q_DECLARE_METATYPE(OBSSource);
@@ -100,10 +105,7 @@ OBSBasicFilters::OBSBasicFilters(QWidget *parent, OBSSource source_)
 	connect(close, SIGNAL(clicked()), this, SLOT(close()));
 	close->setDefault(true);
 
-	ui->buttonBox->button(QDialogButtonBox::Reset)
-		->setText(QTStr("Defaults"));
-
-	connect(ui->buttonBox->button(QDialogButtonBox::Reset),
+	connect(ui->buttonBox->button(QDialogButtonBox::RestoreDefaults),
 		SIGNAL(clicked()), this, SLOT(ResetFilters()));
 
 	uint32_t caps = obs_source_get_output_flags(source);
@@ -684,6 +686,34 @@ void OBSBasicFilters::closeEvent(QCloseEvent *event)
 					 OBSBasicFilters::DrawPreview, this);
 
 	main->SaveProject();
+}
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool OBSBasicFilters::nativeEvent(const QByteArray &, void *message, qintptr *)
+#else
+bool OBSBasicFilters::nativeEvent(const QByteArray &, void *message, long *)
+#endif
+{
+#ifdef _WIN32
+	const MSG &msg = *static_cast<MSG *>(message);
+	switch (msg.message) {
+	case WM_MOVE:
+		for (OBSQTDisplay *const display :
+		     findChildren<OBSQTDisplay *>()) {
+			display->OnMove();
+		}
+		break;
+	case WM_DISPLAYCHANGE:
+		for (OBSQTDisplay *const display :
+		     findChildren<OBSQTDisplay *>()) {
+			display->OnDisplayChange();
+		}
+	}
+#else
+	UNUSED_PARAMETER(message);
+#endif
+
+	return false;
 }
 
 /* OBS Signals */

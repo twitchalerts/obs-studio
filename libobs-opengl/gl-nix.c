@@ -124,6 +124,11 @@ extern void device_present(gs_device_t *device)
 	gl_vtable->device_present(device);
 }
 
+extern bool device_is_monitor_hdr(gs_device_t *device, void *monitor)
+{
+	return false;
+}
+
 extern struct gs_texture *device_texture_create_from_dmabuf(
 	gs_device_t *device, unsigned int width, unsigned int height,
 	uint32_t drm_format, enum gs_color_format color_format,
@@ -151,4 +156,12 @@ extern bool device_query_dmabuf_modifiers_for_format(gs_device_t *device,
 {
 	return gl_vtable->device_query_dmabuf_modifiers_for_format(
 		device, drm_format, modifiers, n_modifiers);
+}
+
+struct gs_texture *device_texture_create_from_pixmap(
+	gs_device_t *device, uint32_t width, uint32_t height,
+	enum gs_color_format color_format, uint32_t target, void *pixmap)
+{
+	return gl_vtable->device_texture_create_from_pixmap(
+		device, width, height, color_format, target, pixmap);
 }

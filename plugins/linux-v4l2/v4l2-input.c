@@ -121,12 +121,16 @@ static void v4l2_prep_obs_frame(struct v4l2_data *data,
 	memset(frame, 0, sizeof(struct obs_source_frame));
 	memset(plane_offsets, 0, sizeof(size_t) * MAX_AV_PLANES);
 
+	const enum video_format format = v4l2_to_obs_video_format(data->pixfmt);
+
 	frame->width = data->width;
 	frame->height = data->height;
-	frame->format = v4l2_to_obs_video_format(data->pixfmt);
-	video_format_get_parameters(VIDEO_CS_DEFAULT, data->color_range,
-				    frame->color_matrix, frame->color_range_min,
-				    frame->color_range_max);
+	frame->format = format;
+	video_format_get_parameters_for_format(VIDEO_CS_DEFAULT,
+					       data->color_range, format,
+					       frame->color_matrix,
+					       frame->color_range_min,
+					       frame->color_range_max);
 
 	switch (data->pixfmt) {
 	case V4L2_PIX_FMT_NV12:
@@ -1033,7 +1037,7 @@ static void v4l2_init(struct v4l2_data *data)
 		goto fail;
 	return;
 fail:
-	blog(LOG_ERROR, "Initialization failed");
+	blog(LOG_ERROR, "Initialization failed, errno: %s", strerror(errno));
 	v4l2_terminate(data);
 }
 
@@ -1162,6 +1166,8 @@ static void *v4l2_create(obs_data_t *settings, obs_source_t *source)
 
 	signal_handler_connect(sh, "device_added", &device_added, data);
 	signal_handler_connect(sh, "device_removed", &device_removed, data);
+#else
+	blog(LOG_INFO, "Compiled without libudev, you can't reconnect devices");
 #endif
 
 	return data;

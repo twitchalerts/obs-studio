@@ -81,7 +81,6 @@ static const char *my_dhm_G = "4";
 #include <nettle/md5.h>
 #else	/* USE_OPENSSL */
 #include <openssl/ssl.h>
-#include <openssl/rc4.h>
 #include <openssl/md5.h>
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
@@ -485,7 +484,8 @@ RTMP_Reset(RTMP *r)
     r->m_fVideoCodecs = 252.0;
     r->Link.curStreamIdx = 0;
     r->Link.nStreams = 0;
-    r->Link.timeout = 30;
+    r->Link.receiveTimeout = 30;
+    r->Link.sendTimeout = 6;
     r->Link.swfAge = 30;
 }
 
@@ -929,12 +929,20 @@ RTMP_Connect0(RTMP *r, struct sockaddr * service, socklen_t addrlen)
 
     /* set timeout */
     {
-        SET_RCVTIMEO(tv, r->Link.timeout);
+        SET_RCVTIMEO(tvr, r->Link.receiveTimeout);
         if (setsockopt
-                (r->m_sb.sb_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv)))
+                (r->m_sb.sb_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&tvr, sizeof(tvr)))
         {
-            RTMP_Log(RTMP_LOGERROR, "%s, Setting socket timeout to %ds failed!",
-                     __FUNCTION__, r->Link.timeout);
+            RTMP_Log(RTMP_LOGERROR, "%s, Setting socket receive timeout to %ds failed!",
+                     __FUNCTION__, r->Link.receiveTimeout);
+        }
+
+        SET_RCVTIMEO(tvs, r->Link.sendTimeout);
+        if (setsockopt
+                (r->m_sb.sb_socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&tvs, sizeof(tvs)))
+        {
+                RTMP_Log(RTMP_LOGERROR, "%s, Setting socket send timeout to %ds failed!",
+                     __FUNCTION__, r->Link.sendTimeout);
         }
     }
 
@@ -954,7 +962,11 @@ RTMP_Connect1(RTMP *r, RTMPPacket *cp)
 
 #if defined(USE_MBEDTLS)
         mbedtls_net_context *server_fd = &r->RTMP_TLS_ctx->net;
+#if MBEDTLS_VERSION_NUMBER == 0x03000000
+        server_fd->MBEDTLS_PRIVATE(fd) = r->m_sb.sb_socket;
+#else
         server_fd->fd = r->m_sb.sb_socket;
+#endif
         TLS_setfd(r->m_sb.sb_ssl, server_fd);
 
         // make sure we verify the certificate hostname
@@ -1540,13 +1552,6 @@ ReadN(RTMP *r, char *buffer, int n)
         if (r->Link.protocol & RTMP_FEATURE_HTTP)
             r->m_resplen -= nBytes;
 
-#ifdef CRYPTO
-        if (r->Link.rc4keyIn)
-        {
-            RC4_encrypt(r->Link.rc4keyIn, nBytes, ptr);
-        }
-#endif
-
         n -= nBytes;
         ptr += nBytes;
     }
@@ -1558,20 +1563,6 @@ static int
 WriteN(RTMP *r, const char *buffer, int n)
 {
     const char *ptr = buffer;
-#ifdef CRYPTO
-    char *encrypted = 0;
-    char buf[RTMP_BUFFER_CACHE_SIZE];
-
-    if (r->Link.rc4keyOut)
-    {
-        if (n > (int)sizeof(buf))
-            encrypted = (char *)malloc(n);
-        else
-            encrypted = (char *)buf;
-        ptr = encrypted;
-        RC4_encrypt2(r->Link.rc4keyOut, n, buffer, ptr);
-    }
-#endif
 
     while (n > 0)
     {
@@ -1607,11 +1598,6 @@ WriteN(RTMP *r, const char *buffer, int n)
         n -= nBytes;
         ptr += nBytes;
     }
-
-#ifdef CRYPTO
-    if (encrypted && encrypted != buf)
-        free(encrypted);
-#endif
 
     return n == 0;
 }
@@ -2607,7 +2593,7 @@ b64enc(const unsigned char *input, int length, char *output, int maxsize)
 #if defined(USE_MBEDTLS)
 typedef	mbedtls_md5_context MD5_CTX;
 
-#if MBEDTLS_VERSION_NUMBER >= 0x02070000
+#if MBEDTLS_VERSION_NUMBER >= 0x02070000 && MBEDTLS_VERSION_MAJOR < 3
 #define MD5_Init(ctx)	mbedtls_md5_init(ctx); mbedtls_md5_starts_ret(ctx)
 #define MD5_Update(ctx,data,len)	mbedtls_md5_update_ret(ctx,(unsigned char *)data,len)
 #define MD5_Final(dig,ctx)	mbedtls_md5_finish_ret(ctx,dig); mbedtls_md5_free(ctx)
@@ -4408,22 +4394,6 @@ RTMP_Close(RTMP *r)
         r->Link.app.av_val = NULL;
         free(r->Link.tcUrl.av_val);
         r->Link.tcUrl.av_val = NULL;
-    }
-#elif defined(CRYPTO)
-    if (r->Link.dh)
-    {
-        MDH_free(r->Link.dh);
-        r->Link.dh = NULL;
-    }
-    if (r->Link.rc4keyIn)
-    {
-        RC4_free(r->Link.rc4keyIn);
-        r->Link.rc4keyIn = NULL;
-    }
-    if (r->Link.rc4keyOut)
-    {
-        RC4_free(r->Link.rc4keyOut);
-        r->Link.rc4keyOut = NULL;
     }
 #else
     for (int idx = 0; idx < r->Link.nStreams; idx++)

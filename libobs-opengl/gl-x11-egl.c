@@ -628,6 +628,9 @@ static void gl_x11_egl_device_present(gs_device_t *device)
 		free(xcb_event);
 	}
 
+	if (eglSwapInterval(device->plat->edisplay, 0) == EGL_FALSE) {
+		blog(LOG_ERROR, "eglSwapInterval failed");
+	}
 	if (!eglSwapBuffers(device->plat->edisplay,
 			    device->cur_swap->wi->surface))
 		blog(LOG_ERROR, "Cannot swap EGL buffers: %s",
@@ -645,6 +648,17 @@ static struct gs_texture *gl_x11_egl_device_texture_create_from_dmabuf(
 	return gl_egl_create_dmabuf_image(plat->edisplay, width, height,
 					  drm_format, color_format, n_planes,
 					  fds, strides, offsets, modifiers);
+}
+
+static struct gs_texture *gl_x11_egl_device_texture_create_from_pixmap(
+	gs_device_t *device, uint32_t width, uint32_t height,
+	enum gs_color_format color_format, uint32_t target, void *pixmap)
+{
+	struct gl_platform *plat = device->plat;
+
+	return gl_egl_create_texture_from_pixmap(plat->edisplay, width, height,
+						 color_format, target,
+						 (EGLClientBuffer)pixmap);
 }
 
 static bool gl_x11_egl_device_query_dmabuf_capabilities(
@@ -688,6 +702,8 @@ static const struct gl_winsys_vtable egl_x11_winsys_vtable = {
 		gl_x11_egl_device_query_dmabuf_capabilities,
 	.device_query_dmabuf_modifiers_for_format =
 		gl_x11_egl_device_query_dmabuf_modifiers_for_format,
+	.device_texture_create_from_pixmap =
+		gl_x11_egl_device_texture_create_from_pixmap,
 };
 
 const struct gl_winsys_vtable *gl_x11_egl_get_winsys_vtable(void)
