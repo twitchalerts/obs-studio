@@ -398,11 +398,7 @@ static void ffmpeg_source_tick(void *data, float seconds)
 #define SRT_PROTO "srt"
 #define RIST_PROTO "rist"
 
-<<<<<<< HEAD
-static bool requires_mpegts(char *path)
-=======
 static bool requires_mpegts(const char *path)
->>>>>>> 5dcabaf5cff101c9b71b55d3bca0d4340514fc5c
 {
 	return !astrcmpi_n(path, SRT_PROTO, sizeof(SRT_PROTO) - 1) ||
 	       !astrcmpi_n(path, RIST_PROTO, sizeof(RIST_PROTO) - 1);
@@ -427,14 +423,8 @@ static void ffmpeg_source_update(void *data, obs_data_t *settings)
 		input_format = NULL;
 		s->is_looping = obs_data_get_bool(settings, "looping");
 	} else {
-<<<<<<< HEAD
-		input = (char *)obs_data_get_string(settings, "input");
-		input_format =
-			(char *)obs_data_get_string(settings, "input_format");
-=======
 		input = obs_data_get_string(settings, "input");
 		input_format = obs_data_get_string(settings, "input_format");
->>>>>>> 5dcabaf5cff101c9b71b55d3bca0d4340514fc5c
 		if (requires_mpegts(input)) {
 			input_format = "mpegts";
 			obs_data_set_string(settings, "input_format", "mpegts");
