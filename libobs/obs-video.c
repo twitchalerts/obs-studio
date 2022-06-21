@@ -316,7 +316,7 @@ static void render_convert_texture(struct obs_core_video *video,
 	gs_eparam_t *height_i = gs_effect_get_param_by_name(effect, "height_i");
 	gs_eparam_t *sdr_white_nits_over_maximum = gs_effect_get_param_by_name(
 		effect, "sdr_white_nits_over_maximum");
-	gs_eparam_t *hlg_lw = gs_effect_get_param_by_name(effect, "hlg_lw");
+	gs_eparam_t *hdr_lw = gs_effect_get_param_by_name(effect, "hdr_lw");
 
 	struct vec4 vec0, vec1, vec2;
 	vec4_set(&vec0, video->color_matrix[4], video->color_matrix[5],
@@ -336,7 +336,7 @@ static void render_convert_texture(struct obs_core_video *video,
 		gs_effect_set_texture(image, texture);
 		gs_effect_set_vec4(color_vec0, &vec0);
 		gs_effect_set_float(sdr_white_nits_over_maximum, multiplier);
-		gs_effect_set_float(hlg_lw, hdr_nominal_peak_level);
+		gs_effect_set_float(hdr_lw, hdr_nominal_peak_level);
 		render_convert_plane(effect, convert_textures[0],
 				     video->conversion_techs[0]);
 
@@ -350,7 +350,7 @@ static void render_convert_texture(struct obs_core_video *video,
 					    video->conversion_height_i);
 			gs_effect_set_float(sdr_white_nits_over_maximum,
 					    multiplier);
-			gs_effect_set_float(hlg_lw, hdr_nominal_peak_level);
+			gs_effect_set_float(hdr_lw, hdr_nominal_peak_level);
 			render_convert_plane(effect, convert_textures[1],
 					     video->conversion_techs[1]);
 
@@ -363,7 +363,7 @@ static void render_convert_texture(struct obs_core_video *video,
 						    video->conversion_height_i);
 				gs_effect_set_float(sdr_white_nits_over_maximum,
 						    multiplier);
-				gs_effect_set_float(hlg_lw,
+				gs_effect_set_float(hdr_lw,
 						    hdr_nominal_peak_level);
 				render_convert_plane(
 					effect, convert_textures[2],
@@ -392,21 +392,24 @@ stage_output_texture(struct obs_core_video *video, int cur_texture,
 
 	if (!video->gpu_conversion) {
 		gs_stagesurf_t *copy = copy_surfaces[0];
-		if (copy) {
+		if (copy)
 			gs_stage_texture(copy, video->output_texture);
-			video->active_copy_surfaces[cur_texture][0] = copy;
-		}
+		video->active_copy_surfaces[cur_texture][0] = copy;
+
+		for (size_t i = 1; i < NUM_CHANNELS; ++i)
+			video->active_copy_surfaces[cur_texture][i] = NULL;
 
 		video->textures_copied[cur_texture] = true;
 	} else if (video->texture_converted) {
 		for (size_t i = 0; i < channel_count; i++) {
 			gs_stagesurf_t *copy = copy_surfaces[i];
-			if (copy) {
+			if (copy)
 				gs_stage_texture(copy, convert_textures[i]);
-				video->active_copy_surfaces[cur_texture][i] =
-					copy;
-			}
+			video->active_copy_surfaces[cur_texture][i] = copy;
 		}
+
+		for (size_t i = channel_count; i < NUM_CHANNELS; ++i)
+			video->active_copy_surfaces[cur_texture][i] = NULL;
 
 		video->textures_copied[cur_texture] = true;
 	}

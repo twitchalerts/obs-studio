@@ -708,6 +708,15 @@ static void *send_thread(void *data)
 	}
 
 	set_output_error(stream);
+
+	if (silently_reconnecting(stream)) {
+		/* manually close the socket to prevent librtmp from sending
+		 * unpublish / deletestream messages when we call RTMP_Close,
+		 * since we want to re-use this stream when we reconnect */
+		RTMPSockBuf_Close(&stream->rtmp.m_sb);
+		stream->rtmp.m_sb.sb_socket = -1;
+	}
+
 	RTMP_Close(&stream->rtmp);
 
 	/* reset bitrate on stop */
@@ -1042,6 +1051,10 @@ static int try_connect(struct rtmp_stream *stream)
 	// on reconnect we need to reset the internal variables of librtmp
 	// otherwise the data sent/received will not parse correctly on the other end
 	RTMP_Reset(&stream->rtmp);
+
+	// apparently TLS will not properly persist through connections
+	RTMP_TLS_Free(&stream->rtmp);
+	RTMP_TLS_Init(&stream->rtmp);
 
 	// since we don't call RTMP_Init above, there's no other good place
 	// to reset this as doing it in RTMP_Close breaks the ugly RTMP

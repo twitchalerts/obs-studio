@@ -15,7 +15,9 @@
  */
 
 #include "decode.h"
+
 #include "media.h"
+#include <libavutil/mastering_display_metadata.h>
 
 #if LIBAVCODEC_VERSION_INT > AV_VERSION_INT(58, 4, 100)
 #define USE_NEW_HARDWARE_CODEC_METHOD
@@ -121,6 +123,34 @@ fail:
 	return ret;
 }
 
+static uint16_t get_max_luminance(const AVStream *stream)
+{
+	uint32_t max_luminance = 0;
+
+	for (int i = 0; i < stream->nb_side_data; i++) {
+		const AVPacketSideData *const sd = &stream->side_data[i];
+		switch (sd->type) {
+		case AV_PKT_DATA_MASTERING_DISPLAY_METADATA: {
+			const AVMasteringDisplayMetadata *mastering =
+				(AVMasteringDisplayMetadata *)sd->data;
+			if (mastering->has_luminance) {
+				max_luminance =
+					(uint32_t)(av_q2d(mastering
+								  ->max_luminance) +
+						   0.5);
+			}
+
+			break;
+		}
+		case AV_PKT_DATA_CONTENT_LIGHT_LEVEL:
+			return (uint16_t)((AVContentLightMetadata *)sd->data)
+				->MaxCLL;
+		}
+	}
+
+	return max_luminance;
+}
+
 bool mp_decode_init(mp_media_t *m, enum AVMediaType type, bool hw)
 {
 	struct mp_decode *d = type == AVMEDIA_TYPE_VIDEO ? &m->v : &m->a;
@@ -142,6 +172,9 @@ bool mp_decode_init(mp_media_t *m, enum AVMediaType type, bool hw)
 #else
 	id = stream->codec->codec_id;
 #endif
+
+	if (type == AVMEDIA_TYPE_VIDEO)
+		d->max_luminance = get_max_luminance(stream);
 
 	if (id == AV_CODEC_ID_VP8 || id == AV_CODEC_ID_VP9) {
 		AVDictionaryEntry *tag = NULL;
@@ -193,6 +226,10 @@ bool mp_decode_init(mp_media_t *m, enum AVMediaType type, bool hw)
 
 	if (d->codec->capabilities & CODEC_CAP_TRUNC)
 		d->decoder->flags |= CODEC_FLAG_TRUNC;
+
+	d->orig_pkt = av_packet_alloc();
+	d->pkt = av_packet_alloc();
+
 	return true;
 }
 
@@ -200,9 +237,9 @@ extern void mp_media_free_packet(mp_media_t *m, AVPacket *pkt);
 
 void mp_decode_clear_packets(struct mp_decode *d)
 {
-	if (d->pkt) {
-		mp_media_free_packet(d->m, d->pkt);
-		d->pkt = NULL;
+	if (d->packet_pending) {
+		av_packet_unref(d->orig_pkt);
+		d->packet_pending = false;
 	}
 
 	while (d->packets.size) {
@@ -214,6 +251,9 @@ void mp_decode_clear_packets(struct mp_decode *d)
 
 void mp_decode_free(struct mp_decode *d)
 {
+	av_packet_free(&d->pkt);
+	av_packet_free(&d->orig_pkt);
+
 	mp_decode_clear_packets(d);
 	circlebuf_free(&d->packets);
 
@@ -277,9 +317,6 @@ static int decode_packet(struct mp_decode *d, int *got_frame)
 	}
 
 	if (ret != 0) {
-		if (!d->pkt)
-			return 0;
-
 		ret = avcodec_send_packet(d->decoder, d->pkt);
 		if (ret != 0 && ret != AVERROR(EAGAIN)) {
 			if (ret == AVERROR_EOF)
@@ -309,9 +346,15 @@ static int decode_packet(struct mp_decode *d, int *got_frame)
 		}
 
 		int err = av_hwframe_transfer_data(d->sw_frame, d->hw_frame, 0);
-		if (err != 0) {
+		if (err) {
 			ret = 0;
 			*got_frame = false;
+		} else {
+			d->sw_frame->color_range = d->hw_frame->color_range;
+			d->sw_frame->color_primaries =
+				d->hw_frame->color_primaries;
+			d->sw_frame->color_trc = d->hw_frame->color_trc;
+			d->sw_frame->colorspace = d->hw_frame->colorspace;
 		}
 	}
 #endif
@@ -332,13 +375,20 @@ bool mp_decode_next(struct mp_decode *d)
 		return true;
 
 	while (!d->frame_ready) {
-		if (!d->pkt) {
+		if (!d->packet_pending) {
 			if (!d->packets.size) {
-				if (!eof)
+				if (eof) {
+					d->pkt->data = NULL;
+					d->pkt->size = 0;
+				} else {
 					return true;
+				}
 			} else {
-				circlebuf_pop_front(&d->packets, &d->pkt,
-						    sizeof(d->pkt));
+				mp_media_free_packet(d->m, d->orig_pkt);
+				circlebuf_pop_front(&d->packets, &d->orig_pkt,
+						    sizeof(d->orig_pkt));
+				av_packet_ref(d->pkt, d->orig_pkt);
+				d->packet_pending = true;
 			}
 		}
 
@@ -354,24 +404,26 @@ bool mp_decode_next(struct mp_decode *d)
 			     av_err2str(ret));
 #endif
 
-			if (d->pkt) {
-				mp_media_free_packet(d->m, d->pkt);
-				d->pkt = NULL;
+			if (d->packet_pending) {
+				av_packet_unref(d->orig_pkt);
+				av_packet_unref(d->pkt);
+				d->packet_pending = false;
 			}
 			return true;
 		}
 
 		d->frame_ready = !!got_frame;
 
-		if (d->pkt) {
+		if (d->packet_pending) {
 			if (d->pkt->size) {
 				d->pkt->data += ret;
 				d->pkt->size -= ret;
 			}
 
 			if (d->pkt->size <= 0) {
-				mp_media_free_packet(d->m, d->pkt);
-				d->pkt = NULL;
+				av_packet_unref(d->orig_pkt);
+				av_packet_unref(d->pkt);
+				d->packet_pending = false;
 			}
 		}
 	}

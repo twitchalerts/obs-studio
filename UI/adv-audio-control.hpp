@@ -24,8 +24,6 @@ class OBSAdvAudioCtrl : public QObject {
 private:
 	OBSSource source;
 
-	QPointer<QWidget> activeContainer;
-	QPointer<QWidget> forceMonoContainer;
 	QPointer<QWidget> mixerContainer;
 	QPointer<QWidget> balanceContainer;
 
@@ -87,7 +85,7 @@ public slots:
 	void SourceMonitoringTypeChanged(int type);
 	void SourceMixersChanged(uint32_t mixers);
 	void SourceBalanceChanged(int balance);
-	void SetSourceName(const QString &newNamw);
+	void SetSourceName(QString &newNamw);
 
 	void volumeChanged(double db);
 	void percentChanged(int percent);

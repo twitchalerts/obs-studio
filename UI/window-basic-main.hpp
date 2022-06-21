@@ -22,9 +22,6 @@
 #include <QThread>
 #include <QWidgetAction>
 #include <QSystemTrayIcon>
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#include <QWinTaskbarButton>
-#endif
 #include <QStyledItemDelegate>
 #include <obs.hpp>
 #include <vector>
@@ -69,6 +66,9 @@ class OBSBasicStats;
 #define SIMPLE_ENCODER_X264_LOWCPU "x264_lowcpu"
 #define SIMPLE_ENCODER_QSV "qsv"
 #define SIMPLE_ENCODER_NVENC "nvenc"
+#ifdef ENABLE_HEVC
+#define SIMPLE_ENCODER_NVENC_HEVC "nvenc_hevc"
+#endif
 #define SIMPLE_ENCODER_AMD "amd"
 
 #define PREVIEW_EDGE_SIZE 10
@@ -325,16 +325,14 @@ private:
 	QPointer<QAction> renameScene;
 	QPointer<QAction> renameSource;
 
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-	QWinTaskbarButton *taskBtn = new QWinTaskbarButton(this);
-#endif
-
 	QPointer<QWidget> programWidget;
 	QPointer<QVBoxLayout> programLayout;
 	QPointer<QLabel> programLabel;
 
 	QScopedPointer<QThread> patronJsonThread;
 	std::string patronJson;
+
+	std::atomic<obs_scene_t *> currentScene = nullptr;
 
 	void UpdateMultiviewProjectorMenu();
 
@@ -448,9 +446,6 @@ private:
 
 	void CreateProgramDisplay();
 	void CreateProgramOptions();
-	int TransitionCount();
-	int AddTransitionBeforeSeparator(const QString &name,
-					 obs_source_t *source);
 	void AddQuickTransitionId(int id);
 	void AddQuickTransition();
 	void AddQuickTransitionHotkey(QuickTransition *qt);
@@ -706,7 +701,7 @@ private slots:
 
 	void ProcessHotkey(obs_hotkey_id id, bool pressed);
 
-	void AddTransition(QString id);
+	void AddTransition();
 	void RenameTransition();
 	void TransitionClicked();
 	void TransitionStopped();
@@ -1068,7 +1063,8 @@ private slots:
 	void on_toggleSourceIcons_toggled(bool visible);
 
 	void on_transitions_currentIndexChanged(int index);
-	void RemoveTransitionClicked();
+	void on_transitionAdd_clicked();
+	void on_transitionRemove_clicked();
 	void on_transitionProps_clicked();
 	void on_transitionDuration_valueChanged(int value);
 	void on_tbar_position_valueChanged(int value);
@@ -1138,8 +1134,6 @@ private slots:
 	void OpenSceneWindow();
 
 	void StackedMixerAreaContextMenuRequested();
-
-	void ResizeOutputSizeOfSource();
 
 public slots:
 	void on_actionResetTransform_triggered();

@@ -1419,8 +1419,7 @@ bool OBSApp::OBSInit()
 	qRegisterMetaType<VoidFunc>();
 
 #if !defined(_WIN32) && !defined(__APPLE__)
-	obs_set_nix_platform(OBS_NIX_PLATFORM_X11_GLX);
-	if (QApplication::platformName() == "xcb" && getenv("OBS_USE_EGL")) {
+	if (QApplication::platformName() == "xcb") {
 		obs_set_nix_platform(OBS_NIX_PLATFORM_X11_EGL);
 		blog(LOG_INFO, "Using EGL/X11");
 	}
@@ -2174,7 +2173,7 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 		}
 
 #ifdef __APPLE__
-		bool rosettaTranslated = ProcessIsRosettaTranslated();
+		bool rosettaTranslated = os_get_emulation_status();
 		blog(LOG_INFO, "Rosetta translation used: %s",
 		     rosettaTranslated ? "true" : "false");
 #endif

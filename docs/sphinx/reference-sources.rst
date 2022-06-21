@@ -1317,6 +1317,7 @@ Functions used by sources
            enum video_format   format;
            float               color_matrix[16];
            bool                full_range;
+           uint16_t            max_luminance;
            float               color_range_min[3];
            float               color_range_max[3];
            bool                flip;
@@ -1642,4 +1643,4 @@ Functions used by transitions
 
 .. ---------------------------------------------------------------------------
 
-.. _libobs/obs-source.h: https://github.com/jp9000/obs-studio/blob/master/libobs/obs-source.h
+.. _libobs/obs-source.h: https://github.com/obsproject/obs-studio/blob/master/libobs/obs-source.h

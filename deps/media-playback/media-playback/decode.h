@@ -67,8 +67,11 @@ struct mp_decode {
 	bool frame_ready;
 	bool eof;
 	bool hw;
+	uint16_t max_luminance;
 
+	AVPacket *orig_pkt;
 	AVPacket *pkt;
+	bool packet_pending;
 	struct circlebuf packets;
 };
 

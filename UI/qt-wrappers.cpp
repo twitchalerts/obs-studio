@@ -28,6 +28,7 @@
 #include <QKeyEvent>
 #include <QFileDialog>
 #include <QStandardItemModel>
+#include <QLabel>
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 #include <obs-nix-platform.h>
@@ -121,7 +122,6 @@ bool QTToGSWindow(QWindow *window, gs_window &gswindow)
 	gswindow.view = (id)window->winId();
 #else
 	switch (obs_get_nix_platform()) {
-	case OBS_NIX_PLATFORM_X11_GLX:
 	case OBS_NIX_PLATFORM_X11_EGL:
 		gswindow.id = window->winId();
 		gswindow.display = obs_get_nix_platform_display();
@@ -377,4 +377,25 @@ QStringList OpenFiles(QWidget *parent, QString title, QString path,
 		QFileDialog::getOpenFileNames(parent, title, path, extensions);
 
 	return files;
+}
+
+static void SetLabelText(QLabel *label, const QString &newText)
+{
+	if (label->text() != newText)
+		label->setText(newText);
+}
+
+void TruncateLabel(QLabel *label, QString &newText, int length)
+{
+	if (newText.length() < length) {
+		label->setToolTip(QString());
+		SetLabelText(label, newText);
+		return;
+	}
+
+	label->setToolTip(newText);
+	newText.truncate(length);
+	newText += "...";
+
+	SetLabelText(label, newText);
 }

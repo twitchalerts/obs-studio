@@ -2011,9 +2011,7 @@ void OBSBasic::OBSInit()
 
 	SystemTray(true);
 
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-	taskBtn->setWindow(windowHandle());
-#endif
+	TaskbarOverlayInit();
 
 #ifdef __APPLE__
 	disableColorSpaceConversion(this);
@@ -2771,8 +2769,7 @@ OBSSource OBSBasic::GetProgramSource()
 
 OBSScene OBSBasic::GetCurrentScene()
 {
-	QListWidgetItem *item = ui->scenes->currentItem();
-	return item ? GetOBSRef<OBSScene>(item) : nullptr;
+	return currentScene.load();
 }
 
 OBSSceneItem OBSBasic::GetSceneItem(QListWidgetItem *item)
@@ -3962,6 +3959,7 @@ void OBSBasic::RemoveSelectedScene()
 		QListWidgetItem *item = ui->scenes->takeItem(curIndex);
 		ui->scenes->insertItem(savedIndex, item);
 		ui->scenes->setCurrentRow(savedIndex);
+		currentScene = scene.Get();
 		ui->scenes->blockSignals(false);
 	};
 
@@ -4709,6 +4707,10 @@ void OBSBasic::closeEvent(QCloseEvent *event)
 
 	delete extraBrowsers;
 
+	ui->preview->DestroyDisplay();
+	if (program)
+		program->DestroyDisplay();
+
 	config_set_string(App()->GlobalConfig(), "BasicWindow", "DockState",
 			  saveState().toBase64().constData());
 
@@ -4962,6 +4964,10 @@ void OBSBasic::on_scenes_currentItemChanged(QListWidgetItem *current,
 
 		scene = GetOBSRef<OBSScene>(current);
 		source = obs_scene_get_source(scene);
+
+		currentScene = scene;
+	} else {
+		currentScene = NULL;
 	}
 
 	SetCurrentScene(source);
@@ -5225,6 +5231,7 @@ void OBSBasic::ChangeSceneIndex(bool relative, int offset, int invalidIdx)
 	ui->scenes->insertItem(idx + offset, item);
 	ui->scenes->setCurrentRow(idx + offset);
 	item->setSelected(true);
+	currentScene = GetOBSRef<OBSScene>(item).Get();
 	ui->scenes->blockSignals(false);
 
 	OBSProjector::UpdateMultiviewProjectors();
@@ -5559,7 +5566,6 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 		bool isAsyncVideo = (flags & OBS_SOURCE_ASYNC_VIDEO) ==
 				    OBS_SOURCE_ASYNC_VIDEO;
 		bool hasAudio = (flags & OBS_SOURCE_AUDIO) == OBS_SOURCE_AUDIO;
-		QAction *action;
 
 		colorMenu = new QMenu(QTStr("ChangeBG"));
 		colorWidgetAction = new QWidgetAction(colorMenu);
@@ -5571,18 +5577,9 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 		popup.addAction(QTStr("Remove"), this,
 				SLOT(on_actionRemoveSource_triggered()));
 		popup.addSeparator();
+
 		popup.addMenu(ui->orderMenu);
-
 		popup.addMenu(ui->transformMenu);
-
-		sourceProjector = new QMenu(QTStr("SourceProjector"));
-		AddProjectorMenuMonitors(sourceProjector, this,
-					 SLOT(OpenSourceProjector()));
-
-		QAction *sourceWindow = popup.addAction(
-			QTStr("SourceWindow"), this, SLOT(OpenSourceWindow()));
-
-		popup.addAction(sourceWindow);
 
 		popup.addSeparator();
 
@@ -5592,57 +5589,44 @@ void OBSBasic::CreateSourcePopupMenu(int idx, bool preview)
 						SLOT(ToggleHideMixer()));
 			actionHideMixer->setCheckable(true);
 			actionHideMixer->setChecked(SourceMixerHidden(source));
-		}
-
-		if (isAsyncVideo) {
-			deinterlaceMenu = new QMenu(QTStr("Deinterlacing"));
-			popup.addMenu(
-				AddDeinterlacingMenu(deinterlaceMenu, source));
 			popup.addSeparator();
 		}
-
-		QAction *resizeOutput =
-			popup.addAction(QTStr("ResizeOutputSizeOfSource"), this,
-					SLOT(ResizeOutputSizeOfSource()));
-
-		int width = obs_source_get_width(source);
-		int height = obs_source_get_height(source);
-
-		resizeOutput->setEnabled(!obs_video_active());
-
-		if (width < 8 || height < 8)
-			resizeOutput->setEnabled(false);
 
 		scaleFilteringMenu = new QMenu(QTStr("ScaleFiltering"));
 		popup.addMenu(
 			AddScaleFilteringMenu(scaleFilteringMenu, sceneItem));
-		popup.addSeparator();
-
+		blendingModeMenu = new QMenu(QTStr("BlendingMode"));
+		popup.addMenu(AddBlendingModeMenu(blendingModeMenu, sceneItem));
 		blendingMethodMenu = new QMenu(QTStr("BlendingMethod"));
 		popup.addMenu(
 			AddBlendingMethodMenu(blendingMethodMenu, sceneItem));
-		blendingModeMenu = new QMenu(QTStr("BlendingMode"));
-		popup.addMenu(AddBlendingModeMenu(blendingModeMenu, sceneItem));
-		popup.addSeparator();
-
-		popup.addMenu(sourceProjector);
-		popup.addAction(sourceWindow);
-		popup.addAction(QTStr("Screenshot.Source"), this,
-				SLOT(ScreenshotSelectedSource()));
+		if (isAsyncVideo) {
+			deinterlaceMenu = new QMenu(QTStr("Deinterlacing"));
+			popup.addMenu(
+				AddDeinterlacingMenu(deinterlaceMenu, source));
+		}
 		popup.addSeparator();
 
 		popup.addMenu(CreateVisibilityTransitionMenu(true));
 		popup.addMenu(CreateVisibilityTransitionMenu(false));
 		popup.addSeparator();
 
-		action = popup.addAction(QTStr("Interact"), this,
-					 SLOT(on_actionInteract_triggered()));
+		sourceProjector = new QMenu(QTStr("SourceProjector"));
+		AddProjectorMenuMonitors(sourceProjector, this,
+					 SLOT(OpenSourceProjector()));
+		popup.addMenu(sourceProjector);
+		popup.addAction(QTStr("SourceWindow"), this,
+				SLOT(OpenSourceWindow()));
+		popup.addAction(QTStr("Screenshot.Source"), this,
+				SLOT(ScreenshotSelectedSource()));
+		popup.addSeparator();
 
-		action->setEnabled(obs_source_get_output_flags(source) &
-				   OBS_SOURCE_INTERACTION);
+		if (flags & OBS_SOURCE_INTERACTION)
+			popup.addAction(QTStr("Interact"), this,
+					SLOT(on_actionInteract_triggered()));
 
 		popup.addAction(QTStr("Filters"), this, SLOT(OpenFilters()));
-		action = popup.addAction(
+		QAction *action = popup.addAction(
 			QTStr("Properties"), this,
 			SLOT(on_actionSourceProperties_triggered()));
 		action->setEnabled(obs_source_configurable(source));
@@ -6713,10 +6697,7 @@ inline void OBSBasic::OnActivate(bool force)
 		App()->IncrementSleepInhibition();
 		UpdateProcessPriority();
 
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-		taskBtn->setOverlayIcon(QIcon::fromTheme(
-			"obs-active", QIcon(":/res/images/active.png")));
-#endif
+		TaskbarOverlaySetStatus(TaskbarOverlayStatusActive);
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayMask =
@@ -6744,9 +6725,7 @@ inline void OBSBasic::OnDeactivate()
 		App()->DecrementSleepInhibition();
 		ClearProcessPriority();
 
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-		taskBtn->clearOverlayIcon();
-#endif
+		TaskbarOverlaySetStatus(TaskbarOverlayStatusInactive);
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
@@ -6771,11 +6750,7 @@ inline void OBSBasic::OnDeactivate()
 #endif
 			trayIcon->setIcon(QIcon::fromTheme("obs-tray-paused",
 							   trayIconFile));
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-			taskBtn->setOverlayIcon(QIcon::fromTheme(
-				"obs-paused",
-				QIcon(":/res/images/paused.png")));
-#endif
+			TaskbarOverlaySetStatus(TaskbarOverlayStatusPaused);
 		} else {
 #ifdef __APPLE__
 			QIcon trayIconFile =
@@ -6787,11 +6762,7 @@ inline void OBSBasic::OnDeactivate()
 #endif
 			trayIcon->setIcon(QIcon::fromTheme("obs-tray-active",
 							   trayIconFile));
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-			taskBtn->setOverlayIcon(QIcon::fromTheme(
-				"obs-active",
-				QIcon(":/res/images/active.png")));
-#endif
+			TaskbarOverlaySetStatus(TaskbarOverlayStatusActive);
 		}
 	}
 }
@@ -9626,40 +9597,6 @@ void OBSBasic::on_actionShowAbout_triggered()
 	about->setAttribute(Qt::WA_DeleteOnClose, true);
 }
 
-void OBSBasic::ResizeOutputSizeOfSource()
-{
-	if (obs_video_active())
-		return;
-
-	QMessageBox resize_output(this);
-	resize_output.setText(QTStr("ResizeOutputSizeOfSource.Text") + "\n\n" +
-			      QTStr("ResizeOutputSizeOfSource.Continue"));
-	QAbstractButton *Yes =
-		resize_output.addButton(QTStr("Yes"), QMessageBox::YesRole);
-	resize_output.addButton(QTStr("No"), QMessageBox::NoRole);
-	resize_output.setIcon(QMessageBox::Warning);
-	resize_output.setWindowTitle(QTStr("ResizeOutputSizeOfSource"));
-	resize_output.exec();
-
-	if (resize_output.clickedButton() != Yes)
-		return;
-
-	OBSSource source = obs_sceneitem_get_source(GetCurrentSceneItem());
-
-	int width = obs_source_get_width(source);
-	int height = obs_source_get_height(source);
-
-	config_set_uint(basicConfig, "Video", "BaseCX", width);
-	config_set_uint(basicConfig, "Video", "BaseCY", height);
-	config_set_uint(basicConfig, "Video", "OutputCX", width);
-	config_set_uint(basicConfig, "Video", "OutputCY", height);
-
-	ResetVideo();
-	ResetOutputs();
-	config_save_safe(basicConfig, "tmp", nullptr);
-	on_actionFitToScreen_triggered();
-}
-
 QAction *OBSBasic::AddDockWidget(QDockWidget *dock)
 {
 	QAction *action = ui->menuDocks->addAction(dock->windowTitle());
@@ -9773,10 +9710,7 @@ void OBSBasic::PauseRecording()
 
 		ui->statusbar->RecordingPaused();
 
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-		taskBtn->setOverlayIcon(QIcon::fromTheme(
-			"obs-paused", QIcon(":/res/images/paused.png")));
-#endif
+		TaskbarOverlaySetStatus(TaskbarOverlayStatusPaused);
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
@@ -9820,10 +9754,7 @@ void OBSBasic::UnpauseRecording()
 
 		ui->statusbar->RecordingUnpaused();
 
-#if defined(_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-		taskBtn->setOverlayIcon(QIcon::fromTheme(
-			"obs-active", QIcon(":/res/images/active.png")));
-#endif
+		TaskbarOverlaySetStatus(TaskbarOverlayStatusActive);
 		if (trayIcon && trayIcon->isVisible()) {
 #ifdef __APPLE__
 			QIcon trayIconFile =
