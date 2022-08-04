@@ -1186,7 +1186,14 @@ void SourceTree::dropEvent(QDropEvent *event)
 	QModelIndexList indices = selectedIndexes();
 
 	DropIndicatorPosition indicator = dropIndicatorPosition();
-	int row = indexAt(event->pos()).row();
+	int row = indexAt(
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+			  event->position().toPoint()
+#else
+			  event->pos()
+#endif
+				  )
+			  .row();
 	bool emptyDrop = row == -1;
 
 	if (emptyDrop) {
@@ -1694,10 +1701,8 @@ void SourceTree::UpdateNoSourcesMessage()
 	std::string darkPath;
 	GetDataFilePath("themes/Dark/no_sources.svg", darkPath);
 
-	QColor color = palette().text().color();
-	bool lightTheme = (color.redF() < 0.5);
-	QString file = lightTheme ? ":res/images/no_sources.svg"
-				  : darkPath.c_str();
+	QString file = !App()->IsThemeDark() ? ":res/images/no_sources.svg"
+					     : darkPath.c_str();
 	iconNoSources.load(file);
 
 	QTextOption opt(Qt::AlignHCenter);

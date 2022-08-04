@@ -799,8 +799,7 @@ static bool QueryRemove(QWidget *parent, obs_source_t *source)
 {
 	const char *name = obs_source_get_name(source);
 
-	QString text = QTStr("ConfirmRemove.Text");
-	text.replace("$1", QT_UTF8(name));
+	QString text = QTStr("ConfirmRemove.Text").arg(QT_UTF8(name));
 
 	QMessageBox remove_source(parent);
 	remove_source.setText(text);
@@ -957,7 +956,7 @@ void OBSBasicFilters::CustomContextMenu(const QPoint &pos, bool async)
 		QAction *copyAction = new QAction(QTStr("Copy"));
 		connect(copyAction, SIGNAL(triggered()), this,
 			SLOT(CopyFilter()));
-		copyAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_C));
+		copyAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_C));
 		ui->effectWidget->addAction(copyAction);
 		ui->asyncWidget->addAction(copyAction);
 		popup.addAction(copyAction);
@@ -966,7 +965,7 @@ void OBSBasicFilters::CustomContextMenu(const QPoint &pos, bool async)
 	QAction *pasteAction = new QAction(QTStr("Paste"));
 	pasteAction->setEnabled(main->copyFilter);
 	connect(pasteAction, SIGNAL(triggered()), this, SLOT(PasteFilter()));
-	pasteAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_V));
+	pasteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_V));
 	ui->effectWidget->addAction(pasteAction);
 	ui->asyncWidget->addAction(pasteAction);
 	popup.addAction(pasteAction);

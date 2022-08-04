@@ -9,6 +9,10 @@ if(OS_WINDOWS)
     ENABLE_NVAFX
     "Enable building with NVIDIA Audio Effects SDK (requires redistributable to be installed)"
     ON)
+  option(
+    ENABLE_NVVFX
+    "Enable building with NVIDIA Video Effects SDK (requires redistributable to be installed)"
+    ON)
 endif()
 
 add_library(obs-filters MODULE)
@@ -28,7 +32,8 @@ else()
   target_compile_definitions(obs-filters PRIVATE LIBSPEEXDSP_ENABLED)
 
   if(OS_WINDOWS)
-    target_link_options(obs-filters PRIVATE "LINKER:/LTCG")
+    target_link_options(obs-filters PRIVATE "LINKER:/LTCG"
+                        "LINKER:/IGNORE:4098" "LINKER:/IGNORE:4099")
   endif()
 endif()
 
@@ -85,14 +90,23 @@ else()
 endif()
 
 if(NOT ENABLE_NVAFX)
-  obs_status(DISABLED "NVidia Audio FX support")
+  obs_status(DISABLED "NVIDIA Audio FX support")
   set(LIBNVAFX_FOUND OFF)
 else()
-  obs_status(ENABLED "NVidia Audio FX support")
+  obs_status(ENABLED "NVIDIA Audio FX support")
 
   target_compile_definitions(obs-filters PRIVATE LIBNVAFX_ENABLED)
 
   set(LIBNVAFX_FOUND ON)
+endif()
+
+if(NOT ENABLE_NVVFX)
+  obs_status(DISABLED "NVIDIA Video FX support")
+  set(LIBNVVFX_FOUND OFF)
+else()
+  obs_status(ENABLED "NVIDIA Video FX support")
+  set(LIBNVVFX_FOUND ON)
+  target_compile_definitions(obs-filters PRIVATE LIBNVVFX_ENABLED)
 endif()
 
 if(TARGET Librnnoise::Librnnoise
@@ -140,7 +154,8 @@ if(NOT OS_MACOS)
             data/luma_key_filter_v2.effect
             data/mask_alpha_filter.effect
             data/mask_color_filter.effect
-            data/sharpness.effect)
+            data/sharpness.effect
+            data/rtx_greenscreen.effect)
 
   get_target_property(_SOURCES obs-filters SOURCES)
   set(_FILTERS ${_SOURCES})
@@ -152,10 +167,24 @@ if(NOT OS_MACOS)
     FILES ${_FILTERS})
 endif()
 
+if(LIBNVVFX_FOUND)
+  target_sources(obs-filters PRIVATE nvidia-greenscreen-filter.c)
+  obs_status(
+    STATUS
+    "NVIDIA Video FX support enabled; requires redist to be installed by end-user"
+  )
+endif()
+
 target_include_directories(
   obs-filters PRIVATE $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/config>)
 
 target_link_libraries(obs-filters PRIVATE OBS::libobs)
+
+target_compile_options(
+  obs-filters
+  PRIVATE
+    $<$<OR:$<C_COMPILER_ID:Clang>,$<C_COMPILER_ID:AppleClang>,$<C_COMPILER_ID:GNU>>:-Wno-switch>
+)
 
 set_target_properties(obs-filters PROPERTIES FOLDER "plugins" PREFIX "")
 

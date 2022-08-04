@@ -21,8 +21,9 @@ endif()
 include(UseSWIG)
 
 set_source_files_properties(
-  obspython.i PROPERTIES USE_TARGET_INCLUDE_DIRECTORIES TRUE SWIG_FLAGS
-                                                             "-builtin;-py3")
+  obspython.i
+  PROPERTIES USE_TARGET_INCLUDE_DIRECTORIES TRUE
+             SWIG_FLAGS "$<IF:$<BOOL:${OS_LINUX}>,-py3,-py3-stable-abi>")
 
 swig_add_library(
   obspython
@@ -53,15 +54,12 @@ set_target_properties(obspython PROPERTIES SWIG_COMPILE_DEFINITIONS
 
 if(OS_WINDOWS)
   set_target_properties(
-    obspython
-    PROPERTIES
-      SWIG_COMPILE_DEFINITIONS
-      "SWIG_TYPE_TABLE=obspython;Py_ENABLE_SHARED=1;SWIG_PYTHON_INTERPRETER_NO_DEBUG;MS_NO_COREDLL"
-  )
+    obspython PROPERTIES SWIG_COMPILE_DEFINITIONS
+                         "${_SWIG_DEFINITIONS};MS_NO_COREDLL")
 
   target_link_libraries(obspython PRIVATE Python::Python)
 
-  target_compile_options(obspython PRIVATE /wd4100)
+  target_compile_options(obspython PRIVATE /wd4100 /wd4197)
 
   if(MSVC)
     add_custom_command(

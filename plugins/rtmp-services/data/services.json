@@ -204,6 +204,10 @@
             "common": false,
             "more_info_link": "https://developers.google.com/youtube/v3/live/guides/ingestion-protocol-comparison",
             "stream_key_link": "https://www.youtube.com/live_dashboard",
+            "supported video codecs": [
+                "h264",
+                "hevc"
+            ],
             "servers": [
                 {
                     "name": "Primary YouTube ingest server",
@@ -1033,6 +1037,41 @@
             }
         },
         {
+            "name": "WpStream",
+            "more_info_link": "https://wpstream.net/obs-more-info",
+            "stream_key_link": "https://wpstream.net/obs-get-stream-key",
+            "servers": [
+                {
+                    "name": "Closest server - Automatic",
+                    "url": "rtmp://ingest.wpstream.net/golive"
+                },
+                {
+                    "name": "North America",
+                    "url": "rtmp://ingest-na.wpstream.net/golive"
+                },
+                {
+                    "name": "Europe",
+                    "url": "rtmp://ingest-eu.wpstream.net/golive"
+                },
+                {
+                    "name": "Asia",
+                    "url": "rtmp://ingest-as.wpstream.net/golive"
+                },
+                {
+                    "name": "South America",
+                    "url": "rtmp://ingest-sa.wpstream.net/golive"
+                },
+                {
+                    "name": "Australia & Oceania",
+                    "url": "rtmp://ingest-au.wpstream.net/golive"
+                }
+            ],
+            "recommended": {
+                "keyint": 2,
+                "max audio bitrate": 160
+            }
+        },
+        {
             "name": "Twitter",
             "common": true,
             "stream_key_link": "https://studio.twitter.com/producer/sources",
@@ -1354,7 +1393,7 @@
                 "keyint": 4,
                 "max video bitrate": 2500,
                 "max audio bitrate": 256,
-                "x264opts": "tune=zerolatency aq-strength=0"
+                "x264opts": "tune=zerolatency"
             }
         },
         {
@@ -1490,6 +1529,9 @@
         {
             "name": "YouNow",
             "common": false,
+            "supported audio codecs": [
+                "opus"
+            ],
             "servers": [
                 {
                     "name": "younow.com",
@@ -1863,6 +1905,9 @@
         {
             "name": "Glimesh",
             "stream_key_link": "https://glimesh.tv/users/settings/stream",
+            "supported audio codecs": [
+                "opus"
+            ],
             "servers": [
                 {
                     "name": "North America - Chicago, United States",
@@ -2337,6 +2382,56 @@
                 "max video bitrate": 5000,
                 "max audio bitrate": 160
             }
+        },
+        {
+            "name": "Mildom",
+            "more_info_link": "https://www.mildom.com/course/pc",
+            "stream_key_link": "https://www.mildom.com/creator/live",
+            "servers": [
+                {
+                    "name": "Asia: Tokyo, Japan",
+                    "url": "rtmp://live-tyo-tct.mildom.tv/live"
+                }
+            ],
+            "recommended": {
+                "keyint": 2,
+                "max video bitrate": 6000,
+                "max audio bitrate": 160
+            }
+        },
+        {
+            "name": "Nonolive",
+            "more_info_link": "https://wia.nonolive.com/views/obs_assistant_tutorial.html",
+            "stream_key_link": "https://www.nonolive.com/room_setting",
+            "servers": [
+                {
+                    "name": "Asia: Hong Kong, China",
+                    "url": "rtmp://live-hk-zl.nonolive.tv/live"
+                },
+                {
+                    "name": "Asia: Jakarta, Indonesia",
+                    "url": "rtmp://live-jkt-zl.nonolive.tv/live"
+                },
+                {
+                    "name": "EU: Frankfurt, DE",
+                    "url": "rtmp://live-fra-zl.nonolive.tv/live"
+                }
+            ],
+            "recommended": {
+                "keyint": 2,
+                "max video bitrate": 6000,
+                "max audio bitrate": 160
+            }
+        },
+        {
+            "name": "StreamVi",
+            "stream_key_link": "https://streamvi.ru/settings",
+            "servers": [
+                {
+                    "name": "Default",
+                    "url": "rtmp://live1.streamvi.ru/live"
+                }
+            ]
         }
     ]
 }

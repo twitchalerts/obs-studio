@@ -14,17 +14,30 @@ if(POLICY CMP0025)
 endif()
 
 # Build options
-set(CMAKE_OSX_ARCHITECTURES
-    "x86_64"
-    CACHE STRING "OBS build architecture for macOS - x86_64 required at least")
+if(NOT DEFINED CMAKE_OSX_ARCHITECTURES OR CMAKE_OSX_ARCHITECTURES STREQUAL "")
+  set(CMAKE_OSX_ARCHITECTURES
+      "${CMAKE_HOST_SYSTEM_PROCESSOR}"
+      CACHE STRING
+            "OBS build architecture for macOS - x86_64 required at least" FORCE)
+endif()
 set_property(CACHE CMAKE_OSX_ARCHITECTURES PROPERTY STRINGS x86_64 arm64
                                                     "x86_64;arm64")
 
-set(CMAKE_OSX_DEPLOYMENT_TARGET
-    "10.13"
-    CACHE STRING "OBS deployment target for macOS - 10.13+ required")
+if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET
+                                              STREQUAL "")
+  if("${CMAKE_OSX_ARCHITECTURES}" MATCHES ".*arm64.*")
+    set(_MACOS_DEPLOYMENT_TARGET "11.0")
+  else()
+    set(_MACOS_DEPLOYMENT_TARGET "10.13")
+  endif()
+
+  set(CMAKE_OSX_DEPLOYMENT_TARGET
+      "${_MACOS_DEPLOYMENT_TARGET}"
+      CACHE STRING "OBS deployment target for macOS - 10.13+ required" FORCE)
+  unset(_MACOS_DEPLOYMENT_TARGET)
+endif()
 set_property(CACHE CMAKE_OSX_DEPLOYMENT_TARGET PROPERTY STRINGS 10.13 10.14
-                                                        10.15 11 12)
+                                                        10.15 11.0 12.0)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX
@@ -46,11 +59,23 @@ if(NOT DEFINED CMAKE_PREFIX_PATH)
   )
 endif()
 
+# SWIG hard codes the directory to its library directory at compile time. As
+# obs-deps need to be relocatable, we need to force SWIG to look for its files
+# in a directory relative to the PREFIX_PATH. The best way to ensure this is to
+# set the SWIG_LIB environment variable.
+
+if(NOT DEFINED ENV{SWIG_LIB} AND EXISTS "${CMAKE_PREFIX_PATH}/bin/swig")
+  set(ENV{SWIG_LIB} "${CMAKE_PREFIX_PATH}/share/swig/CURRENT")
+endif()
+
 macro(setup_obs_project)
   # Set code signing options
-  set(OBS_BUNDLE_CODESIGN_IDENTITY
-      "-"
-      CACHE STRING "OBS code signing identity for macOS")
+  if(NOT DEFINED OBS_BUNDLE_CODESIGN_IDENTITY OR OBS_BUNDLE_CODESIGN_IDENTITY
+                                                 STREQUAL "")
+    set(OBS_BUNDLE_CODESIGN_IDENTITY
+        "-"
+        CACHE STRING "OBS code signing identity for macOS")
+  endif()
   set(OBS_CODESIGN_ENTITLEMENTS
       "${CMAKE_SOURCE_DIR}/cmake/bundle/macOS/entitlements.plist"
       CACHE INTERNAL "Path to codesign entitlements plist")
@@ -139,6 +164,7 @@ macro(setup_obs_project)
   get_filename_component(CPACK_DMG_BACKGROUND_FILENAME
                          ${CPACK_DMG_BACKGROUND_IMAGE} NAME)
   set(CPACK_DMG_FORMAT "UDZO")
+  set(CPACK_DMG_FILESYSTEM "APFS")
   set(CPACK_DMG_DS_STORE_SETUP_SCRIPT "${CMAKE_BINARY_DIR}/package.applescript")
 
   set(_DMG_WINDOW_X "100")

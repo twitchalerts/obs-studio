@@ -34,14 +34,24 @@ function(setup_binary_target target)
             NAMELINK_COMPONENT ${target}_Development
     ARCHIVE DESTINATION ${OBS_LIBRARY_DESTINATION}
             COMPONENT ${target}_Development
-    PUBLIC_HEADER DESTINATION ${OBS_INCLUDE_DESTINATION})
+    PUBLIC_HEADER
+      DESTINATION ${OBS_INCLUDE_DESTINATION}
+      COMPONENT ${target}_Development
+      EXCLUDE_FROM_ALL)
 
   # Set up installation paths for development rundir
   install(
     TARGETS ${target}
-    RUNTIME DESTINATION ${OBS_EXECUTABLE_DESTINATION} COMPONENT obs_${target}
-    LIBRARY DESTINATION ${OBS_LIBRARY_DESTINATION} COMPONENT obs_${target}
-    PUBLIC_HEADER DESTINATION ${OBS_INCLUDE_DESTINATION} EXCLUDE_FROM_ALL)
+    RUNTIME DESTINATION ${OBS_EXECUTABLE_DESTINATION}
+            COMPONENT obs_${target}
+            EXCLUDE_FROM_ALL
+    LIBRARY DESTINATION ${OBS_LIBRARY_DESTINATION}
+            COMPONENT obs_${target}
+            EXCLUDE_FROM_ALL
+    PUBLIC_HEADER
+      DESTINATION ${OBS_INCLUDE_DESTINATION}
+      COMPONENT IGNORED
+      EXCLUDE_FROM_ALL)
 
   add_custom_command(
     TARGET ${target}
@@ -68,7 +78,9 @@ function(setup_plugin_target target)
 
   install(
     TARGETS ${target}
-    RUNTIME DESTINATION ${OBS_PLUGIN_DESTINATION} COMPONENT obs_${target}
+    RUNTIME DESTINATION ${OBS_PLUGIN_DESTINATION}
+            COMPONENT obs_${target}
+            EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${OBS_PLUGIN_DESTINATION}
             COMPONENT obs_${target}
             EXCLUDE_FROM_ALL)
@@ -90,8 +102,6 @@ endfunction()
 
 # Helper function to set up OBS scripting plugin targets
 function(setup_script_plugin_target target)
-  set_target_properties(${target} PROPERTIES PREFIX "")
-
   install(
     TARGETS ${target}
     LIBRARY DESTINATION ${OBS_SCRIPT_PLUGIN_DESTINATION}
@@ -242,9 +252,15 @@ function(export_target target)
   install(
     TARGETS ${target}
     EXPORT ${target}Targets
-    RUNTIME DESTINATION ${OBS_EXECUTABLE_DESTINATION} COMPONENT obs_libraries
-    LIBRARY DESTINATION ${OBS_LIBRARY_DESTINATION} COMPONENT obs_libraries
-    ARCHIVE DESTINATION ${OBS_LIBRARY_DESTINATION} COMPONENT obs_libraries
+    RUNTIME DESTINATION ${OBS_EXECUTABLE_DESTINATION}
+            COMPONENT obs_libraries
+            EXCLUDE_FROM_ALL
+    LIBRARY DESTINATION ${OBS_LIBRARY_DESTINATION}
+            COMPONENT obs_libraries
+            EXCLUDE_FROM_ALL
+    ARCHIVE DESTINATION ${OBS_LIBRARY_DESTINATION}
+            COMPONENT obs_libraries
+            EXCLUDE_FROM_ALL
     INCLUDES
     DESTINATION ${OBS_INCLUDE_DESTINATION}
     PUBLIC_HEADER
@@ -319,38 +335,100 @@ function(define_graphic_modules target)
   endforeach()
 endfunction()
 
+if(NOT QT_VERSION)
+  set(QT_VERSION
+      AUTO
+      CACHE STRING "OBS Qt version [AUTO, 5, 6]" FORCE)
+  set_property(CACHE QT_VERSION PROPERTY STRINGS AUTO 5 6)
+endif()
+
 macro(find_qt)
-  set(oneValueArgs VERSION)
   set(multiValueArgs COMPONENTS COMPONENTS_WIN COMPONENTS_MAC COMPONENTS_LINUX)
   cmake_parse_arguments(FIND_QT "" "${oneValueArgs}" "${multiValueArgs}"
                         ${ARGN})
+  set(QT_NO_CREATE_VERSIONLESS_TARGETS ON)
+  find_package(
+    Qt5
+    COMPONENTS Core
+    QUIET)
+  find_package(
+    Qt6
+    COMPONENTS Core
+    QUIET)
+
+  if(NOT _QT_VERSION AND QT_VERSION STREQUAL AUTO)
+    if(TARGET Qt6::Core)
+      set(_QT_VERSION
+          6
+          CACHE INTERNAL "")
+    elseif(TARGET Qt5::Core)
+      set(_QT_VERSION
+          5
+          CACHE INTERNAL "")
+    endif()
+    obs_status(STATUS "Qt version: ${_QT_VERSION}")
+  elseif(NOT _QT_VERSION)
+    if(TARGET Qt${QT_VERSION}::Core)
+      set(_QT_VERSION
+          ${QT_VERSION}
+          CACHE INTERNAL "")
+    else()
+      if(QT_VERSION EQUAL 6)
+        set(FALLBACK_QT_VERSION 5)
+      else()
+        set(FALLBACK_QT_VERSION 6)
+      endif()
+      message(
+        WARNING
+          "Qt${QT_VERSION} was not found, falling back to Qt${FALLBACK_QT_VERSION}"
+      )
+
+      if(TARGET Qt${FALLBACK_QT_VERSION}::Core)
+        set(_QT_VERSION
+            ${FALLBACK_QT_VERSION}
+            CACHE INTERNAL "")
+      endif()
+    endif()
+    obs_status(STATUS "Qt version: ${_QT_VERSION}")
+  endif()
+
+  set(QT_NO_CREATE_VERSIONLESS_TARGETS OFF)
+
+  if(NOT _QT_VERSION)
+    message(FATAL_ERROR "Neither Qt5 or Qt6 were found")
+  endif()
 
   if(OS_WINDOWS)
     find_package(
-      Qt${FIND_QT_VERSION}
+      Qt${_QT_VERSION}
       COMPONENTS ${FIND_QT_COMPONENTS} ${FIND_QT_COMPONENTS_WIN}
       REQUIRED)
   elseif(OS_MACOS)
     find_package(
-      Qt${FIND_QT_VERSION}
+      Qt${_QT_VERSION}
       COMPONENTS ${FIND_QT_COMPONENTS} ${FIND_QT_COMPONENTS_MAC}
       REQUIRED)
   else()
     find_package(
-      Qt${FIND_QT_VERSION}
+      Qt${_QT_VERSION}
       COMPONENTS ${FIND_QT_COMPONENTS} ${FIND_QT_COMPONENTS_LINUX}
       REQUIRED)
   endif()
 
+  list(APPEND FIND_QT_COMPONENTS "Core")
+
+  if("Gui" IN_LIST FIND_QT_COMPONENTS_LINUX)
+    list(APPEND FIND_QT_COMPONENTS_LINUX "GuiPrivate")
+  endif()
+
   foreach(_COMPONENT IN LISTS FIND_QT_COMPONENTS FIND_QT_COMPONENTS_WIN
                               FIND_QT_COMPONENTS_MAC FIND_QT_COMPONENTS_LINUX)
-    if(NOT TARGET Qt::${_COMPONENT} AND TARGET
-                                        Qt${FIND_QT_VERSION}::${_COMPONENT})
+    if(NOT TARGET Qt::${_COMPONENT} AND TARGET Qt${_QT_VERSION}::${_COMPONENT})
 
       add_library(Qt::${_COMPONENT} INTERFACE IMPORTED)
       set_target_properties(
         Qt::${_COMPONENT} PROPERTIES INTERFACE_LINK_LIBRARIES
-                                     "Qt${FIND_QT_VERSION}::${_COMPONENT}")
+                                     "Qt${_QT_VERSION}::${_COMPONENT}")
     endif()
   endforeach()
 endmacro()
@@ -437,6 +515,7 @@ function(_install_obs_datatarget target destination)
     TARGETS ${target}
     LIBRARY DESTINATION ${OBS_DATA_DESTINATION}/${destination}
             COMPONENT obs_${target}
+            EXCLUDE_FROM_ALL
     RUNTIME DESTINATION ${OBS_DATA_DESTINATION}/${destination}
             COMPONENT obs_${target}
             EXCLUDE_FROM_ALL)
@@ -453,6 +532,8 @@ function(_install_obs_datatarget target destination)
         RUNTIME
           DESTINATION
             $ENV{obsInstallerTempDir}/${OBS_DATA_DESTINATION}/${destination}/$<TARGET_FILE_NAME:${target}>
+          COMPONENT obs_${target}
+          EXCLUDE_FROM_ALL
         LIBRARY
           DESTINATION
             $ENV{obsInstallerTempDir}/${OBS_DATA_DESTINATION}/${destination}/$<TARGET_FILE_NAME:${target}>
