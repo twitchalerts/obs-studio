@@ -1759,7 +1759,8 @@ bool obs_scripting_load_python(const char *python_path)
 		dstr_init_move_array(&resources_path, absolute_exec_path);
 		dstr_cat(&resources_path, "../Resources");
 
-		char *absolute_resources_path = os_get_abs_path_ptr(resources_path.array);
+		char *absolute_resources_path =
+			os_get_abs_path_ptr(resources_path.array);
 		if (absolute_resources_path != NULL) {
 			add_to_python_path(absolute_resources_path);
 			bfree(absolute_resources_path);
