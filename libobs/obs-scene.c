@@ -1103,6 +1103,12 @@ static void scene_load(void *data, obs_data_t *settings)
 
 	remove_all_items(scene);
 
+	if (obs_data_get_bool(settings, "custom_size")) {
+		scene->cx = (uint32_t)obs_data_get_int(settings, "cx");
+		scene->cy = (uint32_t)obs_data_get_int(settings, "cy");
+		scene->custom_size = true;
+	}
+
 	if (!items)
 		return;
 
@@ -1116,12 +1122,6 @@ static void scene_load(void *data, obs_data_t *settings)
 
 	if (obs_data_has_user_value(settings, "id_counter"))
 		scene->id_counter = obs_data_get_int(settings, "id_counter");
-
-	if (obs_data_get_bool(settings, "custom_size")) {
-		scene->cx = (uint32_t)obs_data_get_int(settings, "cx");
-		scene->cy = (uint32_t)obs_data_get_int(settings, "cy");
-		scene->custom_size = true;
-	}
 
 	obs_data_array_release(items);
 }
@@ -1265,13 +1265,21 @@ static void scene_save(void *data, obs_data_t *settings)
 static uint32_t scene_getwidth(void *data)
 {
 	obs_scene_t *scene = data;
-	return scene->custom_size ? scene->cx : obs->video.base_width;
+	if (scene->custom_size)
+		return scene->cx;
+	if (obs->video.main_mix)
+		return obs->video.main_mix->ovi.base_width;
+	return 0;
 }
 
 static uint32_t scene_getheight(void *data)
 {
 	obs_scene_t *scene = data;
-	return scene->custom_size ? scene->cy : obs->video.base_height;
+	if (scene->custom_size)
+		return scene->cy;
+	if (obs->video.main_mix)
+		return obs->video.main_mix->ovi.base_height;
+	return 0;
 }
 
 static void apply_scene_item_audio_actions(struct obs_scene_item *item,
