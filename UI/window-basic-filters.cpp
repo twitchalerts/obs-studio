@@ -36,6 +36,11 @@
 #include <QMenu>
 #include <QVariant>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN 1
+#include <Windows.h>
+#endif
+
 using namespace std;
 
 Q_DECLARE_METATYPE(OBSSource);
@@ -100,10 +105,7 @@ OBSBasicFilters::OBSBasicFilters(QWidget *parent, OBSSource source_)
 	connect(close, SIGNAL(clicked()), this, SLOT(close()));
 	close->setDefault(true);
 
-	ui->buttonBox->button(QDialogButtonBox::Reset)
-		->setText(QTStr("Defaults"));
-
-	connect(ui->buttonBox->button(QDialogButtonBox::Reset),
+	connect(ui->buttonBox->button(QDialogButtonBox::RestoreDefaults),
 		SIGNAL(clicked()), this, SLOT(ResetFilters()));
 
 	uint32_t caps = obs_source_get_output_flags(source);
@@ -273,9 +275,25 @@ void OBSBasicFilters::UpdatePropertiesView(int row, bool async)
 	if (view) {
 		updatePropertiesSignal.Disconnect();
 		ui->propertiesFrame->setVisible(false);
-		view->hide();
-		view->deleteLater();
-		view = nullptr;
+		/* Deleting a filter will trigger a visibility change, which will also
+		 * trigger a focus change if the focus has not been on the list itself
+		 * (e.g. after interacting with the property view).
+		 *
+		 * When an async filter list is available in the view, it will be the first
+		 * candidate to receive focus. If this list is empty, we hide the property
+		 * view by default and set the view to a `nullptr`.
+		 *
+		 * When the call for the visibility change returns, we need to check for
+		 * this possibility, as another event might have hidden (and deleted) the
+		 * view already.
+		 *
+		 * macOS might be especially affected as it doesn't switch keyboard focus
+		 * to buttons like Windows does. */
+		if (view) {
+			view->hide();
+			view->deleteLater();
+			view = nullptr;
+		}
 	}
 
 	if (!filter)
@@ -686,6 +704,34 @@ void OBSBasicFilters::closeEvent(QCloseEvent *event)
 	main->SaveProject();
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool OBSBasicFilters::nativeEvent(const QByteArray &, void *message, qintptr *)
+#else
+bool OBSBasicFilters::nativeEvent(const QByteArray &, void *message, long *)
+#endif
+{
+#ifdef _WIN32
+	const MSG &msg = *static_cast<MSG *>(message);
+	switch (msg.message) {
+	case WM_MOVE:
+		for (OBSQTDisplay *const display :
+		     findChildren<OBSQTDisplay *>()) {
+			display->OnMove();
+		}
+		break;
+	case WM_DISPLAYCHANGE:
+		for (OBSQTDisplay *const display :
+		     findChildren<OBSQTDisplay *>()) {
+			display->OnDisplayChange();
+		}
+	}
+#else
+	UNUSED_PARAMETER(message);
+#endif
+
+	return false;
+}
+
 /* OBS Signals */
 
 void OBSBasicFilters::OBSSourceFilterAdded(void *param, calldata_t *data)
@@ -769,8 +815,7 @@ static bool QueryRemove(QWidget *parent, obs_source_t *source)
 {
 	const char *name = obs_source_get_name(source);
 
-	QString text = QTStr("ConfirmRemove.Text");
-	text.replace("$1", QT_UTF8(name));
+	QString text = QTStr("ConfirmRemove.Text").arg(QT_UTF8(name));
 
 	QMessageBox remove_source(parent);
 	remove_source.setText(text);
@@ -927,7 +972,7 @@ void OBSBasicFilters::CustomContextMenu(const QPoint &pos, bool async)
 		QAction *copyAction = new QAction(QTStr("Copy"));
 		connect(copyAction, SIGNAL(triggered()), this,
 			SLOT(CopyFilter()));
-		copyAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_C));
+		copyAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_C));
 		ui->effectWidget->addAction(copyAction);
 		ui->asyncWidget->addAction(copyAction);
 		popup.addAction(copyAction);
@@ -936,7 +981,7 @@ void OBSBasicFilters::CustomContextMenu(const QPoint &pos, bool async)
 	QAction *pasteAction = new QAction(QTStr("Paste"));
 	pasteAction->setEnabled(main->copyFilter);
 	connect(pasteAction, SIGNAL(triggered()), this, SLOT(PasteFilter()));
-	pasteAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_V));
+	pasteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_V));
 	ui->effectWidget->addAction(pasteAction);
 	ui->asyncWidget->addAction(pasteAction);
 	popup.addAction(pasteAction);

@@ -593,7 +593,6 @@ static inline bool find_pair_id(obs_hotkey_pair_id id, size_t *idx)
 static inline bool pair_pointer_fixup_func(size_t idx, obs_hotkey_pair_t *pair,
 					   void *data)
 {
-	UNUSED_PARAMETER(idx);
 	UNUSED_PARAMETER(data);
 
 	if (find_id(pair->id[0], &idx))
@@ -1194,9 +1193,10 @@ static inline bool modifiers_match(obs_hotkey_binding_t *binding,
 				   uint32_t modifiers_, bool strict_modifiers)
 {
 	uint32_t modifiers = binding->key.modifiers;
-	return !modifiers ||
-	       (!strict_modifiers && (modifiers & modifiers_) == modifiers) ||
-	       (strict_modifiers && modifiers == modifiers_);
+	if (!strict_modifiers)
+		return (modifiers & modifiers_) == modifiers;
+	else
+		return modifiers == modifiers_;
 }
 
 static inline bool is_pressed(obs_key_t key)
@@ -1243,7 +1243,7 @@ static inline void handle_binding(obs_hotkey_binding_t *binding,
 		modifiers_match(binding, modifiers, strict_modifiers);
 	bool modifiers_only = binding->key.key == OBS_KEY_NONE;
 
-	if (!binding->key.modifiers)
+	if (!strict_modifiers && !binding->key.modifiers)
 		binding->modifiers_match = true;
 
 	if (modifiers_only)

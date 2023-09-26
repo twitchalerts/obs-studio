@@ -86,10 +86,7 @@ AutoConfigStartPage::AutoConfigStartPage(QWidget *parent)
 	}
 }
 
-AutoConfigStartPage::~AutoConfigStartPage()
-{
-	delete ui;
-}
+AutoConfigStartPage::~AutoConfigStartPage() {}
 
 int AutoConfigStartPage::nextId() const
 {
@@ -191,10 +188,7 @@ AutoConfigVideoPage::AutoConfigVideoPage(QWidget *parent)
 	ui->canvasRes->setCurrentIndex(0);
 }
 
-AutoConfigVideoPage::~AutoConfigVideoPage()
-{
-	delete ui;
-}
+AutoConfigVideoPage::~AutoConfigVideoPage() {}
 
 int AutoConfigVideoPage::nextId() const
 {
@@ -316,10 +310,7 @@ AutoConfigStreamPage::AutoConfigStreamPage(QWidget *parent)
 		SLOT(UpdateCompleted()));
 }
 
-AutoConfigStreamPage::~AutoConfigStreamPage()
-{
-	delete ui;
-}
+AutoConfigStreamPage::~AutoConfigStreamPage() {}
 
 bool AutoConfigStreamPage::isComplete() const
 {
@@ -1003,7 +994,7 @@ void AutoConfig::TestHardwareEncoding()
 			hardwareEncodingAvailable = nvencAvailable = true;
 		else if (strcmp(id, "obs_qsv11") == 0)
 			hardwareEncodingAvailable = qsvAvailable = true;
-		else if (strcmp(id, "amd_amf_h264") == 0)
+		else if (strcmp(id, "h264_texture_amf") == 0)
 			hardwareEncodingAvailable = vceAvailable = true;
 	}
 }

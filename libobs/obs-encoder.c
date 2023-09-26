@@ -187,8 +187,9 @@ static inline bool has_scaling(const struct obs_encoder *encoder)
 
 static inline bool gpu_encode_available(const struct obs_encoder *encoder)
 {
+	struct obs_core_video_mix *video = obs->video.main_mix;
 	return (encoder->info.caps & OBS_ENCODER_CAP_PASS_TEXTURE) != 0 &&
-	       obs->video.using_nv12_tex;
+	       (video->using_p010_tex || video->using_nv12_tex);
 }
 
 static void add_connection(struct obs_encoder *encoder)
@@ -1532,4 +1533,9 @@ void obs_encoder_set_last_error(obs_encoder_t *encoder, const char *message)
 		encoder->last_error_message = bstrdup(message);
 	else
 		encoder->last_error_message = NULL;
+}
+
+uint64_t obs_encoder_get_pause_offset(const obs_encoder_t *encoder)
+{
+	return encoder ? encoder->pause.ts_offset : 0;
 }
