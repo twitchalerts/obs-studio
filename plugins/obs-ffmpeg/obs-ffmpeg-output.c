@@ -580,6 +580,8 @@ static void set_encoder_ids(struct ffmpeg_data *data)
 
 	// data->output->oformat->audio_codec = get_codec_id(
 	// 	data->config.audio_encoder, data->config.audio_encoder_id);
+	if (data)
+		return;
 }
 #endif
 
