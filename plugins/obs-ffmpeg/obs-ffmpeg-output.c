@@ -516,7 +516,7 @@ static enum AVCodecID get_codec_id(const char *name, int id)
 	return codec->id;
 }
 
-static void set_encoder_ids(struct ffmpeg_data *data)
+static void set_encoder_ids(struct ffmpeg_data *)
 {
 	// data->output->oformat->video_codec = get_codec_id(
 	// 	data->config.video_encoder, data->config.video_encoder_id);
