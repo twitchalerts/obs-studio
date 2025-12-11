@@ -1479,6 +1479,7 @@ static void handle_ts_jump(obs_source_t *source, uint64_t expected, uint64_t ts,
 	pthread_mutex_lock(&source->audio_buf_mutex);
 	reset_audio_timing(source, ts, os_time);
 	reset_audio_data(source, os_time);
+	source->audio_pending = false;
 	pthread_mutex_unlock(&source->audio_buf_mutex);
 }
 
@@ -1594,9 +1595,9 @@ static void source_output_audio_data(obs_source_t *source, const struct audio_da
 		diff = uint64_diff(source->next_audio_ts_min, in.timestamp);
 
 		/* smooth audio if within threshold */
-		if (diff > MAX_TS_VAR && !using_direct_ts)
+		if (diff > MAX_TS_VAR && !using_direct_ts) {
 			handle_ts_jump(source, source->next_audio_ts_min, in.timestamp, diff, os_time);
-		else if (diff < TS_SMOOTHING_THRESHOLD) {
+		} else if (diff < TS_SMOOTHING_THRESHOLD) {
 			if (source->async_unbuffered && source->async_decoupled)
 				source->timing_adjust = os_time - in.timestamp;
 			in.timestamp = source->next_audio_ts_min;
@@ -1605,6 +1606,7 @@ static void source_output_audio_data(obs_source_t *source, const struct audio_da
 			     "Audio timestamp for '%s' exceeded TS_SMOOTHING_THRESHOLD, diff=%" PRIu64
 			     " ns, expected %" PRIu64 ", input %" PRIu64,
 			     source->context.name, diff, source->next_audio_ts_min, in.timestamp);
+			handle_ts_jump(source, source->next_audio_ts_min, in.timestamp, diff, os_time);
 		}
 	}
 
