@@ -159,6 +159,16 @@ static bool ignore_audio(obs_source_t *source, size_t channels, size_t sample_ra
 	}
 
 	if (num_floats) {
+		/* if audio is ahead of expected time, it's likely a timestamp reset/jump */
+		if (source->audio_ts > start_ts) {
+			blog(LOG_DEBUG, "[src: %s] audio ahead of start_ts by %" PRIu64 " ns, triggering reset",
+			     name, source->audio_ts - start_ts);
+			source->audio_pending = true;
+			source->audio_ts = 0;
+			source->timing_set = false;
+			return false;
+		}
+
 		/* round up the number of samples to drop */
 		size_t drop = (size_t)util_mul_div64(start_ts - source->audio_ts - 1, sample_rate, 1000000000ULL) + 1;
 		if (drop > num_floats)
