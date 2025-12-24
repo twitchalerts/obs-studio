@@ -1601,10 +1601,17 @@ static void source_output_audio_data(obs_source_t *source, const struct audio_da
 			if (source->async_unbuffered && source->async_decoupled)
 				source->timing_adjust = os_time - in.timestamp;
 			in.timestamp = source->next_audio_ts_min;
+		} else if (diff < 500000000ULL) {
+			blog(LOG_DEBUG,
+			     "Audio timestamp for '%s' drifted by %" PRIu64 " ns, adjusting timing",
+			     source->context.name, diff);
+			pthread_mutex_lock(&source->audio_buf_mutex);
+			reset_audio_timing(source, in.timestamp, os_time);
+			source->audio_pending = false;
+			pthread_mutex_unlock(&source->audio_buf_mutex);
 		} else {
 			blog(LOG_DEBUG,
-			     "Audio timestamp for '%s' exceeded TS_SMOOTHING_THRESHOLD, diff=%" PRIu64
-			     " ns, expected %" PRIu64 ", input %" PRIu64,
+			     "Audio timestamp for '%s' jumped by %" PRIu64 " ns, expected %" PRIu64 ", input %" PRIu64,
 			     source->context.name, diff, source->next_audio_ts_min, in.timestamp);
 			handle_ts_jump(source, source->next_audio_ts_min, in.timestamp, diff, os_time);
 		}
