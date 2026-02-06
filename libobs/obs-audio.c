@@ -137,8 +137,13 @@ static bool ignore_audio(obs_source_t *source, size_t channels, size_t sample_ra
 	if (num_floats) {
 		/* if audio is ahead of expected time, it's likely a timestamp reset/jump */
 		if (source->audio_ts > start_ts) {
-			blog(LOG_DEBUG, "[src: %s] audio ahead of start_ts by %" PRIu64 " ns, triggering reset",
-			     name, source->audio_ts - start_ts);
+			blog(LOG_WARNING, "[src: %s] audio timestamp JUMPED FORWARD by %.02f ms (likely stream discontinuity)",
+			     name, (source->audio_ts - start_ts) / 1000000.);
+			blog(LOG_INFO,
+			     "  [Audio Diagnostics] source=%s jump_ms=%.02f buffer_floats=%zu "
+			     "start_ts=%" PRIu64 " audio_ts=%" PRIu64 " sample_rate=%zu",
+			     name, (source->audio_ts - start_ts) / 1000000., num_floats,
+			     start_ts, source->audio_ts, sample_rate);
 			source->audio_pending = true;
 			source->audio_ts = 0;
 			source->timing_set = false;
@@ -175,10 +180,17 @@ static bool ignore_audio(obs_source_t *source, size_t channels, size_t sample_ra
 	}
 
 	if (!source->audio_pending || num_floats) {
+		// Enhanced diagnostic logging for audio discontinuities
+		const struct audio_output_info *aoi = audio_output_get_info(obs->audio.audio);
 		blog(LOG_WARNING,
 		     "Source %s audio is lagging (over by %.02f ms) "
 		     "at max audio buffering. Restarting source audio.",
 		     name, (start_ts - source->audio_ts) / 1000000.);
+		blog(LOG_INFO,
+		     "  [Audio Diagnostics] source=%s lag_ms=%.02f buffer_floats=%zu "
+		     "expected_sample_rate=%u expected_channels=%zu start_ts=%" PRIu64 " audio_ts=%" PRIu64,
+		     name, (start_ts - source->audio_ts) / 1000000., num_floats,
+		     aoi->samples_per_sec, (size_t)aoi->speakers, start_ts, source->audio_ts);
 	}
 
 	source->audio_pending = true;
