@@ -1648,6 +1648,19 @@ static void source_output_audio_data(obs_source_t *source, const struct audio_da
 	in.timestamp += sync_offset;
 	in.timestamp -= source->resample_offset;
 
+	/* Gradually decay the leftover resample offset from a destroyed
+	 * resampler. This smooths the timestamp transition when the audio
+	 * format changes mid-stream (e.g. Xbox game switch), preventing
+	 * the abrupt timestamp jump that causes audible cracks. */
+	if (source->resample_offset_decay > 0) {
+		in.timestamp -= source->resample_offset_decay;
+		uint64_t frame_ns = conv_frames_to_time(sample_rate, in.frames);
+		if (source->resample_offset_decay > frame_ns)
+			source->resample_offset_decay -= frame_ns;
+		else
+			source->resample_offset_decay = 0;
+	}
+
 	source->next_audio_sys_ts_min = source->next_audio_ts_min + source->timing_adjust;
 
 	if (source->last_sync_offset != sync_offset) {
@@ -3903,13 +3916,40 @@ static inline void reset_resampler(obs_source_t *source, const struct obs_source
 	output_info.samples_per_sec = obs_info->samples_per_sec;
 	output_info.speakers = obs_info->speakers;
 
+	blog(LOG_WARNING,
+	     "=== Resampler Reset for '%s' === "
+	     "old: %u Hz fmt=%d spk=%d -> new: %u Hz fmt=%d spk=%d, "
+	     "old_resample_offset: %" PRIu64 " ns (%.2f ms)",
+	     source->context.name,
+	     source->sample_info.samples_per_sec,
+	     source->sample_info.format,
+	     source->sample_info.speakers,
+	     audio->samples_per_sec, audio->format, audio->speakers,
+	     source->resample_offset,
+	     source->resample_offset / 1000000.0);
+
 	source->sample_info.format = audio->format;
 	source->sample_info.samples_per_sec = audio->samples_per_sec;
 	source->sample_info.speakers = audio->speakers;
 
+	/* Preserve the old resampler's offset for gradual decay so that
+	 * the timestamp doesn't jump abruptly when the resampler is
+	 * destroyed. This prevents the 70-106ms timestamp discontinuity
+	 * that causes audible cracks during mid-stream format changes. */
+	source->resample_offset_decay = source->resample_offset;
+
 	audio_resampler_destroy(source->resampler);
 	source->resampler = NULL;
 	source->resample_offset = 0;
+
+	/* Clear audio buffers and reset timing to prevent stale data
+	 * from the old format mixing with new-format audio. This trades
+	 * one brief clean silence for repeated crackling artifacts. */
+	pthread_mutex_lock(&source->audio_buf_mutex);
+	reset_audio_data(source, os_gettime_ns());
+	source->timing_set = false;
+	source->audio_pending = false;
+	pthread_mutex_unlock(&source->audio_buf_mutex);
 
 	if (source->sample_info.samples_per_sec == obs_info->samples_per_sec &&
 	    source->sample_info.format == obs_info->format && source->sample_info.speakers == obs_info->speakers) {

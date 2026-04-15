@@ -369,6 +369,31 @@ void mp_media_next_audio(mp_media_t *m)
 	if (audio.format == AUDIO_FORMAT_UNKNOWN)
 		return;
 
+	/* Detect mid-stream audio format changes (e.g. Xbox game switch
+	 * changing sample rate from 44100 to 48000 or vice versa). Log
+	 * the change and flush the decoder to clear stale state. */
+	if (m->last_audio_sample_rate &&
+	    m->last_audio_sample_rate != (uint32_t)f->sample_rate) {
+		blog(LOG_WARNING,
+		     "=== Audio Format Change Detected === "
+		     "sample_rate: %u -> %d, channels: %d -> %d, "
+		     "format: %d, frames: %d",
+		     m->last_audio_sample_rate, f->sample_rate,
+		     m->last_audio_channels, f->ch_layout.nb_channels,
+		     f->format, f->nb_samples);
+		avcodec_flush_buffers(d->decoder);
+	} else if (m->last_audio_channels &&
+		   m->last_audio_channels != f->ch_layout.nb_channels) {
+		blog(LOG_WARNING,
+		     "=== Audio Channel Change Detected === "
+		     "channels: %d -> %d, sample_rate: %d",
+		     m->last_audio_channels, f->ch_layout.nb_channels,
+		     f->sample_rate);
+		avcodec_flush_buffers(d->decoder);
+	}
+	m->last_audio_sample_rate = (uint32_t)f->sample_rate;
+	m->last_audio_channels = f->ch_layout.nb_channels;
+
 	m->a_cb(m->opaque, &audio);
 }
 

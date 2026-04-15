@@ -103,6 +103,10 @@ struct mp_media {
 	bool seek;
 	bool seek_next_ts;
 	int64_t seek_pos;
+
+	/* Track last-seen audio format for mid-stream change detection */
+	uint32_t last_audio_sample_rate;
+	int last_audio_channels;
 };
 
 typedef struct mp_media mp_media_t;
